@@ -1,0 +1,9 @@
+pandas
+pyodbc
+openpyxl
+python-dotenv
+pytest
+pywin32
+pydantic>=2
+pyyaml>=6
+pydantic-settings

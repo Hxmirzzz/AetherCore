@@ -1,0 +1,50 @@
+# Archivos específicos del usuario y credenciales (MUY IMPORTANTE)
+# Ignora el archivo .env en la raíz del repositorio. Contiene credenciales sensibles.
+/.env
+# Si alguna vez tuvieras archivos .env en subcarpetas y también quisieras ignorarlos,
+# podrías añadir la línea: .env
+
+# Directorios y archivos de caché de Python
+# Ignora la carpeta __pycache__ que Python crea para archivos compilados
+__pycache__/
+# Ignora los archivos .pyc que son versiones compiladas de módulos Python
+*.pyc
+# Ignora los archivos .pytest_cache que pytest usa para caché de tests
+.pytest_cache/
+# Ignora las carpetas de entornos virtuales
+venv_aethercore/
+venv/
+.venv/
+env/
+.env/ # <-- Asegúrate de que esta línea es 'env/' si tu entorno virtual se llama 'env'
+
+# Archivos de configuración de IDEs (VS Code, etc.)
+# Ignora la carpeta .vscode de VS Code con configuraciones de usuario
+.vscode/
+
+# Archivos de registro (Logs)
+# Ignora la carpeta 'logs' dentro del proyecto (si se genera en tiempo de ejecución)
+# Asumiendo que tu carpeta logs/ está en la raíz de mi_aplicacion/
+logs/
+
+# Archivos de datos generados o temporales
+# Si tuvieras carpetas 'data/' o 'output/' en la raíz que se generan, ignóralas
+# data/
+# output/
+
+# Archivos temporales de sistema (Windows, macOS)
+# thumb.db (miniaturas de Windows)
+Thumbs.db
+# .DS_Store (metadatos de macOS)
+.DS_Store
+
+# Archivos de respaldo o directorios de copia de seguridad
+# Ignora cualquier carpeta llamada 'Backup' en cualquier nivel
+Backup/
+# O si solo quieres la de la raíz: /Backup/
+
+# Ignorar archivos de imagen si se generan o son temporales
+# *.jpg
+# *.png
+# *.gif
+# img/ # Si tienes una carpeta 'img' para ignorar

@@ -1,0 +1,1 @@
+# Puedes mapear domain.entities.archivo.ResultadoProcesamiento si necesitas DTO aparte.
