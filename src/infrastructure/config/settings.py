@@ -14,10 +14,10 @@ class DatabaseConfig(BaseSettings):
     """
     Configuración de base de datos (Pydantic v2).
     """
-    server: str = Field(..., alias='SQL_SERVER')
-    database: str = Field(..., alias='SQL_DATABASE')
-    username: str = Field(..., alias='SQL_USERNAME')
-    password: str = Field(..., alias='SQL_PASSWORD')
+    server: str = Field(..., alias='SQL_SERVER_PROD')
+    database: str = Field(..., alias='SQL_DATABASE_PROD')
+    username: str = Field(..., alias='SQL_USERNAME_PROD')
+    password: str = Field(..., alias='SQL_PASSWORD_PROD')
 
     # Lee .env automáticamente
     model_config = SettingsConfigDict(
