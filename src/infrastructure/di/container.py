@@ -22,6 +22,11 @@ from src.infrastructure.repositories.cliente_repository import ClienteRepository
 from src.infrastructure.repositories.punto_repository import PuntoRepository
 from src.infrastructure.repositories.sucursal_repository import SucursalRepository
 from src.infrastructure.repositories.servicio_repository import ServicioRepository
+from src.infrastructure.repositories.service_writer_repository import ServiceWriterRepository
+
+# Servicios de aplicación
+from src.application.services.data_mapper_service import DataMapperService
+from src.application.services.insertion_service import InsertionService
 
 # Excel styler
 from src.infrastructure.excel.excel_styler import ExcelStyler
@@ -90,6 +95,22 @@ class ApplicationContainer:
     def servicio_repository(self) -> ServicioRepository:
         return ServicioRepository(self.db_connection())
 
+    def service_writer_repository(self) -> ServiceWriterRepository:
+        """Repositorio de escritura para insertar servicios."""
+        return ServiceWriterRepository(self.db_connection())
+
+    # ========== SERVICIOS DE APLICACIÓN (NUEVO) ==========
+    def data_mapper_service(self) -> DataMapperService:
+        """Servicio de mapeo de datos archivo -> DTOs."""
+        return DataMapperService(self.unit_of_work())
+
+    def insertion_service(self) -> InsertionService:
+        """Servicio de inserción de servicios en BD."""
+        return InsertionService(
+            mapper_service=self.data_mapper_service(),
+            writer=self.service_writer_repository()
+        )
+
     # Si en algún lugar quieres un UoW desde el contenedor:
     def unit_of_work(self):
         from src.infrastructure.database.unit_of_work import UnitOfWork
@@ -111,7 +132,8 @@ class ApplicationContainer:
         """Factory principal para el caso de uso XML → Excel + Respuesta."""
         return XMLProcessor(
             reader=self.xml_file_reader(),
-            transformer=self.xml_data_transformer()
+            transformer=self.xml_data_transformer(),
+            insertion_service=self.insertion_service()  # 🆕 NUEVO
         )
         
     # ====== TXT PROCESSORS ======
@@ -123,7 +145,8 @@ class ApplicationContainer:
         return TXTProcessor(
             reader=self.txt_file_reader(),
             transformer=self.txt_data_transformer(),
-            paths=self.path_manager()         
+            paths=self.path_manager(),
+            insertion_service=self.insertion_service()  # 🆕 NUEVO
         )
         
     # ====== FILE SYSTEM ======

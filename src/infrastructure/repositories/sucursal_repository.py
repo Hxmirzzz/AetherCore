@@ -7,14 +7,13 @@ class SucursalRepository:
 
     def obtener_todas(self) -> Dict[str, Dict[str, str]]:
         query = """
-            SELECT cod_sucursal, nombre_sucursal, cod_ciudad
+            SELECT cod_sucursal, nombre_sucursal
             FROM adm_sucursales
         """
         rows = self._conn.execute_query(query, [])
         return {
             str(r[0]).strip(): {
-                "nombre_sucursal": (r[1] or "").strip(),
-                "cod_ciudad": (str(r[2]).strip() if r[2] is not None else "")
+                "nombre_sucursal": (r[1] or "").strip()
             }
             for r in (rows or [])
         }
