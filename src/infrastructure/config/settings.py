@@ -37,6 +37,36 @@ class DatabaseConfig(BaseSettings):
             f'PWD={self.password}'
         )
 
+class TestDatabaseConfig(BaseSettings):
+    driver: str = Field(..., alias='TEST_SQL_DRIVER')
+    server: str = Field(..., alias='TEST_SQL_SERVER')
+    database: str = Field(..., alias='TEST_SQL_DATABASE')
+    username: str = Field(..., alias='TEST_SQL_USERNAME')
+    password: str = Field(..., alias='TEST_SQL_PASSWORD')
+    trusted: int = Field(default=0, alias='TEST_SQL_TRUSTED')
+
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='ignore',
+    )
+
+    @property
+    def connection_string(self) -> str:
+        if self.trusted == 1:
+            return (
+                f"DRIVER={{{self.driver}}};"
+                f"SERVER={self.server};"
+                f"DATABASE={self.database};"
+                f"Trusted_Connection=yes;"
+            )
+        return (
+            f"DRIVER={{{self.driver}}};"
+            f"SERVER={self.server};"
+            f"DATABASE={self.database};"
+            f"UID={self.username};"
+            f"PWD={self.password}"
+        )
 
 class PathConfig(BaseSettings):
     """
@@ -129,6 +159,7 @@ class AppConfig(BaseSettings):
     environment: str = Field(default='DEV', alias='APP_ENV')
 
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    database_test: TestDatabaseConfig = Field(default_factory=TestDatabaseConfig)
     paths: PathConfig = Field(default_factory=PathConfig)
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
 
