@@ -214,7 +214,8 @@ class DataMapperService:
     def mapear_desde_xml_order(
         self,
         order_data: Dict[str, Any],
-        nombre_archivo: str
+        nombre_archivo: str,
+        codigo_cliente_xml: Optional[str] = None  # <-- NUEVO PARÁMETRO
     ) -> Tuple[ServicioDTO, TransaccionDTO]:
         """
         Mapea un elemento 'order' (XML) a DTOs de servicio y transacción.
@@ -245,28 +246,45 @@ class DataMapperService:
         logger.info(f"Mapeando order XML: {order_data.get('id')}")
         
         # ────────────────────────────────────────────────────────
-        # 1. EXTRAER Y LIMPIAR CÓDIGO DE PUNTO
+        # 1. EXTRAER CÓDIGOS DEL XML
         # ────────────────────────────────────────────────────────
         entity_ref = str(order_data.get('entityReferenceID', '')).strip()
         if not entity_ref:
             raise ValueError("entityReferenceID no puede estar vacío")
         
-        # Limpiar formato "SUC-0033" → "0033"
+        # Si no nos pasan codigo_cliente_xml, intentar extraerlo del entity_ref
+        if codigo_cliente_xml is None:
+            # Procesar formatos como "52-SUC-0075" o "47-0033"
+            partes = entity_ref.replace('-SUC-', '-').split('-')
+            if len(partes) >= 2:
+                codigo_cliente_xml = partes[0]  # Primera parte es el CC Code
+                logger.debug(f"Extraído CC Code del XML: '{codigo_cliente_xml}'")
+        
         codigo_punto_destino = self._limpiar_codigo_punto_xml(entity_ref)
         
         # ────────────────────────────────────────────────────────
-        # 2. RESOLVER CLIENTE DESDE PUNTO
+        # 2. RESOLVER CLIENTE DESDE PUNTO (CON VERSIÓN CORREGIDA)
         # ────────────────────────────────────────────────────────
-        # En XML no viene NIT, debemos buscar por punto
-        punto_info = self._obtener_info_completa_punto_sin_cliente(codigo_punto_destino)
+        punto_info = self._obtener_info_completa_punto_sin_cliente(
+            codigo_punto_destino, 
+            codigo_cliente_xml  # <-- Ahora se usa correctamente
+        )
+        
         if not punto_info:
-            raise ValueError(f"Punto no encontrado: {codigo_punto_destino}")
+            raise ValueError(
+                f"Punto no encontrado: XML='{entity_ref}', "
+                f"CC Code='{codigo_cliente_xml}', "
+                f"Punto limpio='{codigo_punto_destino}'"
+            )
         
         cod_cliente = punto_info['cod_cliente']
         cod_sucursal = punto_info['cod_sucursal']
         cod_punto_origen = punto_info['cod_fondo'] or codigo_punto_destino
         
-        logger.debug(f"Punto XML resuelto: {codigo_punto_destino} → Cliente {cod_cliente}, Sucursal {cod_sucursal}")
+        logger.info(
+            f"✅ Punto resuelto correctamente: "
+            f"XML '{entity_ref}' -> BD Cliente '{cod_cliente}', Sucursal '{cod_sucursal}'"
+        )
         
         # ────────────────────────────────────────────────────────
         # 3. PARSEAR FECHAS
@@ -322,11 +340,14 @@ class DataMapperService:
             cod_cliente=cod_cliente,
             cod_sucursal=cod_sucursal,
             cod_concepto=cod_concepto,
+            tipo_traslado='N',
             fecha_solicitud=fecha_solicitud,
             hora_solicitud=hora_solicitud,
             cod_estado=MapeoEstadoInicial.obtener_estado_inicial_servicio(),
+            cod_cliente_origen=cod_cliente,
             cod_punto_origen=cod_punto_origen,
             indicador_tipo_origen='F',  # Fondo
+            cod_cliente_destino=cod_cliente,
             cod_punto_destino=codigo_punto_destino,
             indicador_tipo_destino='P',  # Punto
             fallido=False,
@@ -398,6 +419,7 @@ class DataMapperService:
             cod_cliente=cod_cliente,
             cod_sucursal=cod_sucursal,
             cod_concepto=1,  # RECOLECCION OFICINAS
+            tipo_traslado='N',
             fecha_solicitud=fecha_solicitud,
             hora_solicitud=hora_solicitud,
             cod_estado=MapeoEstadoInicial.obtener_estado_inicial_servicio(),
@@ -463,7 +485,7 @@ class DataMapperService:
                 p.cod_fondo,
                 p.nom_punto
             FROM adm_puntos p
-            WHERE p.cod_punto = ? AND p.cod_cliente = ?
+            WHERE p.cod_p_cliente = ? AND p.cod_cliente = ?
         """
         try:
             rows = self._conn_read.execute_query(query, [codigo_punto, cod_cliente])
@@ -507,6 +529,32 @@ class DataMapperService:
             logger.error(f"Error calculando valores TXT: {e}", exc_info=True)
             return (Decimal('0'), Decimal('0'))
 
+    def _calcular_valores_desde_denominaciones_xml(
+        self,
+        denominaciones: list
+    ) -> Tuple[Decimal, Decimal]:
+        """Calcula billetes y monedas desde lista de denominaciones XML"""
+        valor_billetes = Decimal('0')
+        valor_monedas = Decimal('0')
+        
+        for denom in denominaciones:
+            try:
+                code = str(denom.get('code', ''))
+                amount = Decimal(str(denom.get('amount', 0)))
+                
+                # Extraer valor numérico del code (ej: "50000AD" → 50000)
+                valor_denom = int(''.join(filter(str.isdigit, code)))
+                
+                if valor_denom >= 1000:
+                    valor_billetes += amount
+                else:
+                    valor_monedas += amount
+            except Exception as e:
+                logger.warning(f"Error procesando denominación XML {denom}: {e}")
+                continue
+        
+        return (valor_billetes, valor_monedas)
+
     def _limpiar_codigo_punto_xml(self, entity_ref: str) -> str:
         """
         Limpia el código de punto del formato XML.
@@ -521,8 +569,84 @@ class DataMapperService:
         else:
             return entity_ref
 
-    def _obtener_info_completa_punto_sin_cliente(self, codigo_punto: str) -> Optional[Dict[str, Any]]:
-        """Obtiene info del punto sin conocer el cliente"""
+    def _obtener_info_completa_punto_sin_cliente(
+        self,
+        codigo_punto_xml: str,
+        codigo_cliente_xml: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Obtiene info del punto usando la misma lógica que xml_mappers.
+        
+        IMPORTANTE: Busca por cod_cliente + cod_p_cliente (concatenado)
+        
+        Args:
+            codigo_punto_xml: Código del punto como viene del XML (ej: "52-SUC-0075", "47-0033")
+            codigo_cliente_xml: Código de cliente del XML (si está disponible, ej: "52", "47")
+            
+        Returns:
+            Dict con info del punto o None si no se encuentra
+        
+        Lógica:
+        1. Extraer código de cliente del XML (si viene)
+        2. Convertir CC Code → cod_cliente usando CLIENTE_TO_CC
+        3. Buscar en BD por cod_p_cliente = cod_cliente_bd + "-" + numero_punto
+        """
+        from src.infrastructure.config.mapeos import ClienteMapeos
+        
+        logger.debug(f"Buscando punto: XML cliente='{codigo_cliente_xml}', punto='{codigo_punto_xml}'")
+        
+        # ────────────────────────────────────────────────────────
+        # PASO 1: PROCESAR CÓDIGO DEL XML
+        # ────────────────────────────────────────────────────────
+        # El XML puede venir en formatos:
+        # 1. "52-SUC-0075" → codigo_cliente_xml="52", numero_punto="0075"
+        # 2. "52-0075" → codigo_cliente_xml="52", numero_punto="0075"
+        # 3. "SUC-0075" → solo numero_punto="0075"
+        
+        numero_punto = codigo_punto_xml
+        if codigo_cliente_xml is None and '-' in codigo_punto_xml:
+            # Intentar extraer del formato completo
+            partes = codigo_punto_xml.replace('-SUC-', '-').split('-')
+            if len(partes) == 2:
+                # Formato "52-0075"
+                posible_cc, num = partes[0], partes[1]
+                if posible_cc.isdigit() and num.isdigit():
+                    codigo_cliente_xml = posible_cc
+                    numero_punto = num
+                    logger.debug(f"Extraído del formato: CC='{codigo_cliente_xml}', Punto='{numero_punto}'")
+        
+        # Si no tenemos código de cliente del XML, no podemos buscar
+        if not codigo_cliente_xml:
+            logger.error(f"No se puede buscar punto sin código de cliente. XML: '{codigo_punto_xml}'")
+            return None
+        
+        # ────────────────────────────────────────────────────────
+        # PASO 2: CONVERTIR CC CODE → COD_CLIENTE BD
+        # ────────────────────────────────────────────────────────
+        # El XML usa CC Codes ("52", "01", "02", "23")
+        # La BD usa cod_cliente ("45", "46", "47", "48")
+        
+        cc_to_cliente = {v: k for k, v in ClienteMapeos.CLIENTE_TO_CC.items()}
+        
+        if codigo_cliente_xml not in cc_to_cliente:
+            logger.error(
+                f"CC Code '{codigo_cliente_xml}' no está mapeado. "
+                f"CC Codes válidos: {list(cc_to_cliente.keys())}"
+            )
+            return None
+        
+        cod_cliente_bd = cc_to_cliente[codigo_cliente_xml]
+        logger.debug(f"CC Code '{codigo_cliente_xml}' → Cliente BD '{cod_cliente_bd}'")
+        
+        # ────────────────────────────────────────────────────────
+        # PASO 3: BUSCAR EN BD CON FORMATO CORRECTO
+        # ────────────────────────────────────────────────────────
+        # En la BD, el código completo del punto es: cod_cliente + "-" + cod_p_cliente
+        # Ejemplo: "46-0033" (cliente 46, punto 0033)
+        
+        # Primero intentar buscar por el código completo
+        codigo_punto_bd = f"{cod_cliente_bd}-{numero_punto}"
+        
         query = """
             SELECT 
                 p.cod_cliente,
@@ -530,23 +654,59 @@ class DataMapperService:
                 p.cod_fondo,
                 p.nom_punto
             FROM adm_puntos p
-            WHERE p.cod_p_cliente = ?
+            WHERE p.cod_punto = ? AND p.cod_cliente = ?
         """
+        
         try:
-            rows = self._conn_read.execute_query(query, [codigo_punto])
-            if not rows:
-                return None
-            row = rows[0]
-            cod_cliente = int(row[0]) if row[0] else None
-            return {
-                'cod_cliente': cod_cliente,
-                'cod_sucursal': int(row[1]) if row[1] else None,
-                'cod_fondo': str(row[2]).strip() if row[2] else None,
-                'nombre_punto': str(row[3]).strip() if row[3] else ''
-            }
+            rows = self._conn_read.execute_query(query, [numero_punto, cod_cliente_bd])
+            if rows:
+                row = rows[0]
+                logger.info(f"✅ Punto encontrado: BD '{codigo_punto_bd}', XML '{codigo_punto_xml}'")
+                return {
+                    'cod_cliente': int(row[0]) if row[0] else None,
+                    'cod_sucursal': int(row[1]) if row[1] else None,
+                    'cod_fondo': str(row[2]).strip() if row[2] else None,
+                    'nombre_punto': str(row[3]).strip() if row[3] else '',
+                    'cod_punto_bd': codigo_punto_bd
+                }
         except Exception as e:
-            logger.error(f"Error obteniendo info del punto '{codigo_punto}': {e}", exc_info=True)
-            return None
+            logger.error(f"Error buscando punto '{codigo_punto_bd}': {e}", exc_info=True)
+        
+        # ────────────────────────────────────────────────────────
+        # FALLBACK: Buscar solo por número de punto y cliente
+        # ────────────────────────────────────────────────────────
+        query_fallback = """
+            SELECT 
+                p.cod_cliente,
+                p.cod_suc as cod_sucursal,
+                p.cod_fondo,
+                p.nom_punto,
+                p.cod_p_cliente
+            FROM adm_puntos p
+            WHERE p.cod_cliente = ? AND p.cod_p_cliente = ?
+        """
+        
+        try:
+            rows = self._conn_read.execute_query(query_fallback, [cod_cliente_bd, numero_punto])
+            if rows:
+                row = rows[0]
+                cod_p_cliente_real = str(row[4]).strip() if row[4] else None
+                logger.info(
+                    f"✅ Punto encontrado (fallback): "
+                    f"Cliente '{cod_cliente_bd}', Punto '{numero_punto}' -> '{cod_p_cliente_real}'"
+                )
+                return {
+                    'cod_cliente': int(row[0]) if row[0] else None,
+                    'cod_sucursal': int(row[1]) if row[1] else None,
+                    'cod_fondo': str(row[2]).strip() if row[2] else None,
+                    'nombre_punto': str(row[3]).strip() if row[3] else '',
+                    'cod_punto_bd': f"{cod_cliente_bd}-{numero_punto}"
+                }
+        except Exception as e:
+            logger.error(f"Error en fallback para cliente '{cod_cliente_bd}', punto '{numero_punto}': {e}")
+        
+        logger.error(f"❌ Punto NO encontrado: XML '{codigo_punto_xml}', Cliente BD '{cod_cliente_bd}'")
+        return None
 
     def _parsear_fecha_xml(
         self,

@@ -47,6 +47,7 @@ class ServicioDTO:
     
     # Servicio
     cod_concepto: int
+    tipo_traslado: str
     fecha_solicitud: date
     hora_solicitud: time
     
@@ -73,12 +74,6 @@ class ServicioDTO:
     
     # Información adicional del cliente
     cod_os_cliente: Optional[str] = None
-    
-    # Tipo de traslado
-    tipo_traslado: Optional[str] = None
-    
-    # Flujo
-    cod_flujo: Optional[int] = None
     
     # Cliente origen (para traslados)
     cod_cliente_origen: Optional[int] = None
@@ -223,6 +218,7 @@ class ServicioDTO:
         cod_cliente: int,
         cod_sucursal: int,
         cod_concepto: int,
+        tipo_traslado: str,
         fecha_solicitud: date,
         hora_solicitud: time,
         cod_punto_origen: str,
@@ -255,6 +251,7 @@ class ServicioDTO:
             cod_cliente=cod_cliente,
             cod_sucursal=cod_sucursal,
             cod_concepto=cod_concepto,
+            tipo_traslado='N',
             fecha_solicitud=fecha_solicitud,
             hora_solicitud=hora_solicitud,
             cod_estado=0,  # Solicitado
@@ -305,6 +302,7 @@ class ServicioDTO:
             cod_cliente=cod_cliente,
             cod_sucursal=cod_sucursal,
             cod_concepto=1,  # RECOLECCION OFICINAS
+            tipo_traslado='N',
             fecha_solicitud=fecha_solicitud,
             hora_solicitud=hora_solicitud,
             cod_estado=0,  # Solicitado

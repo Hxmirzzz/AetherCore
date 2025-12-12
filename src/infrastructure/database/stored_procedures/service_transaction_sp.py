@@ -99,7 +99,7 @@ class ServiceTransactionSP:
             # CgsServicios
             '@NumeroPedido', '@CodCliente', '@CodOsCliente', '@CodSucursal',
             '@FechaSolicitud', '@HoraSolicitud', '@CodConcepto', '@TipoTraslado',
-            '@CodEstado', '@CodFlujo', '@CodClienteOrigen', '@CodPuntoOrigen',
+            '@CodEstado', '@CodClienteOrigen', '@CodPuntoOrigen',
             '@IndicadorTipoOrigen', '@CodClienteDestino', '@CodPuntoDestino',
             '@IndicadorTipoDestino', '@FechaAceptacion', '@HoraAceptacion',
             '@FechaProgramacion', '@HoraProgramacion', '@FechaAtencionInicial',
@@ -156,7 +156,6 @@ class ServiceTransactionSP:
             servicio_dto.cod_concepto,
             servicio_dto.tipo_traslado,
             servicio_dto.cod_estado,
-            servicio_dto.cod_flujo,
             servicio_dto.cod_cliente_origen,
             servicio_dto.cod_punto_origen,
             servicio_dto.indicador_tipo_origen,
