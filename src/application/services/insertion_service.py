@@ -413,3 +413,56 @@ class InsertionService:
             'ordenes_generadas': ordenes_generadas,
             'errores': errores
         }
+
+    # ═══════════════════════════════════════════════════════════
+    # TEST CONTROLADO (no toca BD real)
+    # ═══════════════════════════════════════════════════════════
+    def insert_test_transaction(self) -> ResultadoInsercion:
+        """
+        Ejecuta el flujo completo:
+        - Mapeo usando DataMapperService
+        - Inserción usando IDatabaseWriter
+        - Retorna ResultadoInsercion
+        
+        Este test NO toca la BD real porque usa datos
+        controlados y puede ser interceptado por el writer.
+        """
+
+        fake_record = {
+            "CODIGO": "TEST-12345",
+            "SERVICIO": 1,
+            "CODIGO PUNTO": "1-1085",
+            "FECHA SERVICIO": "01122025",
+            "DENOMINACION": 50000,
+            "CANTIDAD": 2,
+            "TIPO VALOR": "1"
+        }
+
+        numero_pedido = fake_record["CODIGO"]
+
+        try:
+            # 1. Mapear a DTOs
+            servicio_dto, transaccion_dto = self._mapper.mapear_desde_txt_tipo2(
+                fake_record,
+                nit_cliente="890903938",
+                nombre_archivo="TEST.txt"
+            )
+
+            # 2. Llamar al "writer"
+            orden_servicio = self._writer.insertar_servicio_con_transaccion(
+                servicio_dto,
+                transaccion_dto
+            )
+
+            return ResultadoInsercion(
+                exitoso=True,
+                numero_pedido=numero_pedido,
+                orden_servicio=orden_servicio
+            )
+
+        except Exception as e:
+            return ResultadoInsercion(
+                exitoso=False,
+                numero_pedido=numero_pedido,
+                error=str(e)
+            )   

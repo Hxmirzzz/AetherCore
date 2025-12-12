@@ -1,21 +1,16 @@
 """
 Servicio de mapeo de datos (TXT/XML → DTOs para BD).
 
-Este servicio es responsable de:
-- Transformar datos crudos de archivos a DTOs estructurados
-- Resolver códigos de BD (clientes, sucursales, puntos)
-- Aplicar mapeos de dominio a infraestructura
-- Calcular valores derivados (billetes, monedas, totales)
+CORRECCIÓN: Ahora usa ConnectionManager para acceder a AMBAS BDs.
 """
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime, date, time
 from decimal import Decimal
 import logging
-import pandas as pd
 
 from ..dto.servicio_dto import ServicioDTO
 from ..dto.transaccion_dto import TransaccionDTO
-from src.domain.value_objects.codigo_punto import CodigoPunto, CodigoCliente
+from src.domain.value_objects.codigo_punto import CodigoPunto
 from src.infrastructure.config.mapeos_bd import (
     MapeoConceptoServicio,
     MapeoDivisa,
@@ -25,7 +20,7 @@ from src.infrastructure.config.mapeos_bd import (
     TipoTransaccion,
     ConversionHelper
 )
-from src.infrastructure.database.unit_of_work import UnitOfWork
+from src.infrastructure.database.connection_manager import ConnectionManager
 
 
 logger = logging.getLogger(__name__)
@@ -35,21 +30,19 @@ class DataMapperService:
     """
     Servicio de mapeo de datos de archivos a DTOs de base de datos.
     
-    Este servicio coordina:
-    1. Resolución de códigos (clientes, sucursales, fondos)
-    2. Aplicación de mapeos (servicios, divisas)
-    3. Cálculo de valores (billetes, monedas)
-    4. Construcción de DTOs válidos
+    CORRECCIÓN: Ahora recibe ConnectionManager en lugar de UnitOfWork.
+    Esto le permite consultar la BD de prod y preparar DTOs para insertar en test.
     """
     
-    def __init__(self, uow: UnitOfWork):
+    def __init__(self, conn_manager: ConnectionManager):
         """
-        Inicializa el servicio con un Unit of Work.
+        Inicializa el servicio con un ConnectionManager.
         
         Args:
-            uow: Unit of Work para acceso a repositorios
+            conn_manager: Gestor de conexiones (lectura + escritura)
         """
-        self._uow = uow
+        self._conn_manager = conn_manager
+        self._conn_read = conn_manager.get_read_connection()
     
     # ═══════════════════════════════════════════════════════════
     # MAPEO DESDE TXT
@@ -64,31 +57,13 @@ class DataMapperService:
         """
         Mapea un registro de TIPO 2 (TXT) a DTOs de servicio y transacción.
         
-        Args:
-            registro_tipo2: Diccionario con datos del registro TIPO 2
-            nit_cliente: NIT del cliente (del TIPO 1)
-            nombre_archivo: Nombre del archivo origen
-            
-        Returns:
-            Tupla (ServicioDTO, TransaccionDTO)
-            
-        Raises:
-            ValueError: Si faltan datos críticos o no se pueden resolver
-            
-        Example:
-            registro = {
-                'CODIGO': '12345',
-                'SERVICIO': '4',  # APROVISIONAMIENTO_DE_ATM_NIVEL_7
-                'CODIGO PUNTO': '0033',
-                'FECHA SERVICIO': '15052025',
-                'DENOMINACION': 50000,
-                'CANTIDAD': 100,
-                'TIPO VALOR': '1',  # COP
-                # ... más campos
-            }
-            servicio_dto, transaccion_dto = mapper.mapear_desde_txt_tipo2(
-                registro, '900123456', 'archivo.txt'
-            )
+        PROCESO:
+        1. Consultar cliente por NIT (BD prod)
+        2. Mapear servicio a concepto
+        3. Obtener info del punto (BD prod)
+        4. Parsear fecha y hora
+        5. Calcular valores
+        6. Construir DTOs
         """
         logger.info(f"Mapeando registro TXT TIPO 2: {registro_tipo2.get('CODIGO')}")
         
@@ -184,14 +159,11 @@ class DataMapperService:
         # ────────────────────────────────────────────────────────
         # 7. DETERMINAR INDICADORES DE TIPO
         # ────────────────────────────────────────────────────────
-        # Origen: Fondo (F) si es provisión, Punto (P) si es recolección
         es_fondo_origen = es_provision
         indicador_tipo_origen = MapeoIndicadorTipo.determinar_tipo_origen(
             cod_punto_origen, 
             es_fondo=es_fondo_origen
         )
-        
-        # Destino: siempre Punto (P)
         indicador_tipo_destino = MapeoIndicadorTipo.determinar_tipo_destino(codigo_punto_destino)
         
         # ────────────────────────────────────────────────────────
@@ -227,7 +199,7 @@ class DataMapperService:
         transaccion_dto = TransaccionDTO(
             cod_sucursal=cod_sucursal,
             fecha_registro=datetime.now(),
-            usuario_registro_id='SYSTEM_TXT_PROCESSOR',
+            usuario_registro_id='ID_USER',
             tipo_transaccion=TipoTransaccion.obtener_tipo_default(),
             divisa=divisa_limpia,
             valor_billetes_declarado=valor_billete,
@@ -240,235 +212,19 @@ class DataMapperService:
         return (servicio_dto, transaccion_dto)
     
     # ═══════════════════════════════════════════════════════════
-    # MAPEO DESDE XML
-    # ═══════════════════════════════════════════════════════════
-    
-    def mapear_desde_xml_order(
-        self,
-        order_data: Dict[str, Any],
-        nombre_archivo: str
-    ) -> Tuple[ServicioDTO, TransaccionDTO]:
-        """
-        Mapea un elemento 'order' (XML) a DTOs de servicio y transacción.
-        
-        Args:
-            order_data: Diccionario con datos del order
-            nombre_archivo: Nombre del archivo origen
-            
-        Returns:
-            Tupla (ServicioDTO, TransaccionDTO)
-            
-        Raises:
-            ValueError: Si faltan datos críticos
-            
-        Example:
-            order_data = {
-                'id': 'ORD-12345',
-                'deliveryDate': '2025-05-15T10:30:00',
-                'orderDate': '2025-05-14T15:00:00',
-                'entityReferenceID': 'SUC-0033',
-                'primaryTransport': 'VATCO',
-                'denominaciones': [
-                    {'code': '50000AD', 'amount': 5000000},
-                    # ...
-                ]
-            }
-        """
-        logger.info(f"Mapeando order XML: {order_data.get('id')}")
-        
-        # ────────────────────────────────────────────────────────
-        # 1. EXTRAER Y LIMPIAR CÓDIGO DE PUNTO
-        # ────────────────────────────────────────────────────────
-        entity_ref = str(order_data.get('entityReferenceID', '')).strip()
-        if not entity_ref:
-            raise ValueError("entityReferenceID no puede estar vacío")
-        
-        # Limpiar formato "SUC-0033" → "0033"
-        codigo_punto_destino = self._limpiar_codigo_punto_xml(entity_ref)
-        
-        # ────────────────────────────────────────────────────────
-        # 2. RESOLVER CLIENTE DESDE PUNTO
-        # ────────────────────────────────────────────────────────
-        # En XML no viene NIT, debemos buscar por punto
-        punto_info = self._obtener_info_completa_punto_sin_cliente(codigo_punto_destino)
-        if not punto_info:
-            raise ValueError(f"Punto no encontrado: {codigo_punto_destino}")
-        
-        cod_cliente = punto_info['cod_cliente']
-        cod_sucursal = punto_info['cod_sucursal']
-        cod_punto_origen = punto_info['cod_fondo'] or codigo_punto_destino
-        
-        logger.debug(f"Punto XML resuelto: {codigo_punto_destino} → Cliente {cod_cliente}, Sucursal {cod_sucursal}")
-        
-        # ────────────────────────────────────────────────────────
-        # 3. PARSEAR FECHAS
-        # ────────────────────────────────────────────────────────
-        # deliveryDate: fecha de programación
-        delivery_date_str = str(order_data.get('deliveryDate', '')).strip()
-        fecha_programacion, hora_programacion = self._parsear_fecha_xml(delivery_date_str)
-        
-        # orderDate: fecha de solicitud
-        order_date_str = str(order_data.get('orderDate', '')).strip()
-        fecha_solicitud, hora_solicitud = self._parsear_fecha_xml(order_date_str)
-        
-        if not fecha_solicitud:
-            raise ValueError("orderDate no puede estar vacío")
-        
-        logger.debug(f"Fechas XML: Solicitud {fecha_solicitud} {hora_solicitud}, Programación {fecha_programacion} {hora_programacion}")
-        
-        # ────────────────────────────────────────────────────────
-        # 4. DETERMINAR CONCEPTO (PROVISION)
-        # ────────────────────────────────────────────────────────
-        # En XML, 'order' siempre es provisión
-        # Determinar si es ATM o Oficinas según contexto (simplificado: usar ATM por defecto)
-        cod_concepto = 3  # PROVISION ATM (puede refinarse con más lógica)
-        
-        # ────────────────────────────────────────────────────────
-        # 5. CALCULAR VALORES DESDE DENOMINACIONES
-        # ────────────────────────────────────────────────────────
-        denominaciones = order_data.get('denominaciones', [])
-        valor_billete, valor_moneda = self._calcular_valores_desde_denominaciones_xml(denominaciones)
-        
-        logger.debug(f"Valores XML calculados: Billetes ${valor_billete}, Monedas ${valor_moneda}")
-        
-        # ────────────────────────────────────────────────────────
-        # 6. EXTRAER DIVISA (default COP)
-        # ────────────────────────────────────────────────────────
-        divisa = order_data.get('divisa', 'COP')
-        if len(divisa) != 3:
-            logger.warning(f"Divisa XML inválida '{divisa}', usando COP")
-            divisa = 'COP'
-        
-        # ────────────────────────────────────────────────────────
-        # 7. CONSTRUIR DTOs
-        # ────────────────────────────────────────────────────────
-        numero_pedido = str(order_data.get('id', '')).strip()
-        if not numero_pedido:
-            raise ValueError("ID del order no puede estar vacío")
-        
-        primary_transport = order_data.get('primaryTransport', '')
-        observaciones = f"Transportadora: {primary_transport}" if primary_transport else None
-        
-        servicio_dto = ServicioDTO(
-            numero_pedido=numero_pedido,
-            cod_cliente=cod_cliente,
-            cod_sucursal=cod_sucursal,
-            cod_concepto=cod_concepto,
-            fecha_solicitud=fecha_solicitud,
-            hora_solicitud=hora_solicitud,
-            cod_estado=MapeoEstadoInicial.obtener_estado_inicial_servicio(),
-            cod_punto_origen=cod_punto_origen,
-            indicador_tipo_origen='F',  # Fondo
-            cod_punto_destino=codigo_punto_destino,
-            indicador_tipo_destino='P',  # Punto
-            fallido=False,
-            valor_billete=valor_billete,
-            valor_moneda=valor_moneda,
-            valor_servicio=valor_billete + valor_moneda,
-            fecha_programacion=fecha_programacion,
-            hora_programacion=hora_programacion,
-            modalidad_servicio=ModalidadServicio.obtener_modalidad_default(),
-            observaciones=observaciones,
-            archivo_detalle=nombre_archivo
-        )
-        
-        transaccion_dto = TransaccionDTO(
-            cod_sucursal=cod_sucursal,
-            fecha_registro=datetime.now(),
-            usuario_registro_id='SYSTEM_XML_PROCESSOR',
-            tipo_transaccion=TipoTransaccion.obtener_tipo_default(),
-            divisa=divisa,
-            valor_billetes_declarado=valor_billete,
-            valor_monedas_declarado=valor_moneda,
-            valor_total_declarado=valor_billete + valor_moneda,
-            estado_transaccion=MapeoEstadoInicial.obtener_estado_inicial_transaccion()
-        )
-        
-        logger.info(f"Mapeo XML order completado para pedido {numero_pedido}")
-        return (servicio_dto, transaccion_dto)
-    
-    def mapear_desde_xml_remit(
-        self,
-        remit_data: Dict[str, Any],
-        nombre_archivo: str
-    ) -> Tuple[ServicioDTO, TransaccionDTO]:
-        """
-        Mapea un elemento 'remit' (XML) a DTOs de servicio y transacción.
-        
-        Remit = RECOLECCIÓN, valores en 0 (desconocidos hasta conteo).
-        """
-        logger.info(f"Mapeando remit XML: {remit_data.get('id')}")
-        
-        # Similar a order pero con CodConcepto = 1 (RECOLECCION)
-        # y valores en 0
-        
-        entity_ref = str(remit_data.get('entityReferenceID', '')).strip()
-        codigo_punto_origen = self._limpiar_codigo_punto_xml(entity_ref)
-        
-        punto_info = self._obtener_info_completa_punto_sin_cliente(codigo_punto_origen)
-        if not punto_info:
-            raise ValueError(f"Punto no encontrado: {codigo_punto_origen}")
-        
-        cod_cliente = punto_info['cod_cliente']
-        cod_sucursal = punto_info['cod_sucursal']
-        cod_punto_destino = punto_info['cod_fondo'] or codigo_punto_origen
-        
-        pickup_date_str = str(remit_data.get('pickupDate', '')).strip()
-        fecha_solicitud, hora_solicitud = self._parsear_fecha_xml(pickup_date_str)
-        
-        if not fecha_solicitud:
-            raise ValueError("pickupDate no puede estar vacío")
-        
-        numero_pedido = str(remit_data.get('id', '')).strip()
-        if not numero_pedido:
-            raise ValueError("ID del remit no puede estar vacío")
-        
-        divisa = remit_data.get('divisa', 'COP')
-        
-        servicio_dto = ServicioDTO(
-            numero_pedido=numero_pedido,
-            cod_cliente=cod_cliente,
-            cod_sucursal=cod_sucursal,
-            cod_concepto=1,  # RECOLECCION OFICINAS
-            fecha_solicitud=fecha_solicitud,
-            hora_solicitud=hora_solicitud,
-            cod_estado=MapeoEstadoInicial.obtener_estado_inicial_servicio(),
-            cod_punto_origen=codigo_punto_origen,
-            indicador_tipo_origen='P',  # Punto
-            cod_punto_destino=cod_punto_destino,
-            indicador_tipo_destino='F',  # Fondo
-            fallido=False,
-            valor_billete=Decimal('0'),  # Desconocido
-            valor_moneda=Decimal('0'),  # Desconocido
-            valor_servicio=Decimal('0'),  # Desconocido
-            modalidad_servicio=ModalidadServicio.obtener_modalidad_default(),
-            archivo_detalle=nombre_archivo
-        )
-        
-        transaccion_dto = TransaccionDTO(
-            cod_sucursal=cod_sucursal,
-            fecha_registro=datetime.now(),
-            usuario_registro_id='SYSTEM_XML_PROCESSOR',
-            tipo_transaccion=TipoTransaccion.obtener_tipo_default(),
-            divisa=divisa,
-            valor_billetes_declarado=Decimal('0'),
-            valor_monedas_declarado=Decimal('0'),
-            valor_total_declarado=Decimal('0'),
-            estado_transaccion=MapeoEstadoInicial.obtener_estado_inicial_transaccion()
-        )
-        
-        logger.info(f"Mapeo XML remit completado para pedido {numero_pedido}")
-        return (servicio_dto, transaccion_dto)
-    
-    # ═══════════════════════════════════════════════════════════
     # MÉTODOS AUXILIARES PRIVADOS
     # ═══════════════════════════════════════════════════════════
     
     def _obtener_cod_cliente_por_nit(self, nit: str) -> Optional[int]:
-        """Obtiene el CodCliente desde el NIT usando el repositorio"""
+        """Obtiene el CodCliente desde el NIT usando query directa"""
+        query = """
+            SELECT cod_cliente 
+            FROM adm_clientes 
+            WHERE nro_doc = ?
+        """
         try:
-            cliente = self._uow.clientes.obtener_por_nit(nit)
-            return int(cliente.codigo) if cliente else None
+            result = self._conn_read.execute_scalar(query, [nit])
+            return int(result) if result else None
         except Exception as e:
             logger.error(f"Error obteniendo cliente por NIT '{nit}': {e}", exc_info=True)
             return None
@@ -484,66 +240,27 @@ class DataMapperService:
         Returns:
             Dict con: cod_sucursal, cod_fondo, nombre_punto
         """
-        try:
-            codigo_punto_vo = CodigoPunto(valor=codigo_punto)
-            punto = self._uow.puntos.obtener_por_codigo(codigo_punto_vo)
-            
-            if not punto:
-                return None
-            
-            cod_fondo = self._obtener_fondo_de_punto(codigo_punto, cod_cliente)
-            
-            return {
-                'cod_sucursal': int(punto.sucursal.codigo),
-                'cod_fondo': cod_fondo,
-                'nombre_punto': punto.nombre
-            }
-        except Exception as e:
-            logger.error(f"Error obteniendo info del punto '{codigo_punto}': {e}", exc_info=True)
-            return None
-    
-    def _obtener_info_completa_punto_sin_cliente(
-        self,
-        codigo_punto: str
-    ) -> Optional[Dict[str, Any]]:
-        """Obtiene info del punto sin saber el cliente de antemano"""
-        try:
-            codigo_punto_vo = CodigoPunto(valor=codigo_punto)
-            punto = self._uow.puntos.obtener_por_codigo(codigo_punto_vo)
-            
-            if not punto:
-                return None
-            
-            cod_cliente = int(punto.cliente.codigo)
-            cod_fondo = self._obtener_fondo_de_punto(codigo_punto, cod_cliente)
-            
-            return {
-                'cod_cliente': cod_cliente,
-                'cod_sucursal': int(punto.sucursal.codigo),
-                'cod_fondo': cod_fondo,
-                'nombre_punto': punto.nombre
-            }
-        except Exception as e:
-            logger.error(f"Error obteniendo info del punto '{codigo_punto}': {e}", exc_info=True)
-            return None
-    
-    def _obtener_fondo_de_punto(
-        self,
-        codigo_punto: str,
-        cod_cliente: int
-    ) -> Optional[str]:
-        """Obtiene el código de fondo del punto mediante query SQL"""
         query = """
-            SELECT CodigoFondo 
-            FROM AdmPuntos 
-            WHERE CodigoPunto = ? AND CodigoCliente = ?
+            SELECT 
+                p.cod_suc as cod_sucursal,
+                p.cod_fondo,
+                p.nom_punto
+            FROM adm_puntos p
+            WHERE p.cod_punto = ? AND p.cod_cliente = ?
         """
-        
         try:
-            result = self._uow._connection.execute_scalar(query, [codigo_punto, cod_cliente])
-            return str(result) if result else None
+            rows = self._conn_read.execute_query(query, [codigo_punto, cod_cliente])
+            if not rows:
+                return None
+            
+            row = rows[0]
+            return {
+                'cod_sucursal': int(row[0]) if row[0] else None,
+                'cod_fondo': str(row[1]).strip() if row[1] else None,
+                'nombre_punto': str(row[2]).strip() if row[2] else ''
+            }
         except Exception as e:
-            logger.error(f"Error obteniendo fondo del punto '{codigo_punto}': {e}", exc_info=True)
+            logger.error(f"Error obteniendo info del punto '{codigo_punto}': {e}", exc_info=True)
             return None
     
     def _calcular_valores_desde_registro_txt(
@@ -572,68 +289,3 @@ class DataMapperService:
         except Exception as e:
             logger.error(f"Error calculando valores TXT: {e}", exc_info=True)
             return (Decimal('0'), Decimal('0'))
-    
-    def _calcular_valores_desde_denominaciones_xml(
-        self,
-        denominaciones: list
-    ) -> Tuple[Decimal, Decimal]:
-        """Calcula billetes y monedas desde lista de denominaciones XML"""
-        valor_billetes = Decimal('0')
-        valor_monedas = Decimal('0')
-        
-        for denom in denominaciones:
-            try:
-                code = str(denom.get('code', ''))
-                amount = Decimal(str(denom.get('amount', 0)))
-                
-                # Extraer valor numérico del code (ej: "50000AD" → 50000)
-                valor_denom = int(''.join(filter(str.isdigit, code)))
-                
-                if valor_denom >= 1000:
-                    valor_billetes += amount
-                else:
-                    valor_monedas += amount
-            except Exception as e:
-                logger.warning(f"Error procesando denominación XML {denom}: {e}")
-                continue
-        
-        return (valor_billetes, valor_monedas)
-    
-    def _limpiar_codigo_punto_xml(self, entity_ref: str) -> str:
-        """
-        Limpia el código de punto del formato XML.
-        
-        "SUC-0033" → "0033"
-        "47-SUC-0033" → "0033"
-        """
-        if '-SUC-' in entity_ref:
-            return entity_ref.split('-SUC-')[-1]
-        elif entity_ref.startswith('SUC-'):
-            return entity_ref[4:]
-        else:
-            return entity_ref
-    
-    def _parsear_fecha_xml(
-        self,
-        fecha_str: str
-    ) -> Tuple[Optional[date], Optional[time]]:
-        """
-        Parsea fecha XML en formato ISO.
-        
-        "2025-05-15T10:30:00" → (date(2025,5,15), time(10,30,0))
-        "2025-05-15" → (date(2025,5,15), time(0,0,0))
-        """
-        if not fecha_str:
-            return (None, None)
-        
-        try:
-            # Intentar con timestamp completo
-            if 'T' in fecha_str:
-                dt = datetime.fromisoformat(fecha_str.replace('Z', '+00:00'))
-                return (dt.date(), dt.time())
-            else:
-                # Solo fecha
-                dt = datetime.strptime(fecha_str, '%Y-%m-%d')
-                return (dt.date(), time(0, 0, 0))
-        except Exception as e:
-            logger.warning(f"Error parseando fecha XML '{fecha_str}': {e}")

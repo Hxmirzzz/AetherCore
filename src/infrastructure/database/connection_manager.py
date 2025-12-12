@@ -9,11 +9,9 @@ from typing import Optional
 import logging
 
 from .connection import IDatabaseConnection, SqlServerConnection, ConnectionFactory
-from ..config.settings import AppConfig, DatabaseConfig
-
+from ..config.settings import AppConfig
 
 logger = logging.getLogger(__name__)
-
 
 class ConnectionManager:
     """
@@ -69,8 +67,9 @@ class ConnectionManager:
                 ciudades = ciudad_repo.obtener_todas()
         """
         if self._read_connection is None or not self._read_connection.is_connected():
-            db_config = self._config.database_read
+            db_config = self._config.database
             self._read_connection = ConnectionFactory.create_sql_server_connection(db_config)
+            self._read_connection.connect()
             logger.info(
                 f"Creada conexión de LECTURA a: "
                 f"{db_config.server}/{db_config.database}"
@@ -99,8 +98,9 @@ class ConnectionManager:
                 orden = service_writer.insertar_servicio(conn)
         """
         if self._write_connection is None or not self._write_connection.is_connected():
-            db_config = self._config.database_write
+            db_config = self._config.database_test
             self._write_connection = ConnectionFactory.create_sql_server_connection(db_config)
+            self._write_connection.connect()
             logger.info(
                 f"Creada conexión de ESCRITURA a: "
                 f"{db_config.server}/{db_config.database}"
@@ -147,122 +147,3 @@ class ConnectionManager:
     def __del__(self):
         """Destructor - asegura que las conexiones se cierren"""
         self.close_all()
-
-
-class DualConnectionUnitOfWork:
-    """
-    Unit of Work que maneja DOS conexiones:
-    - Conexión de lectura (para repositorios de consulta)
-    - Conexión de escritura (para inserción)
-    
-    Usage:
-        with DualConnectionUnitOfWork(conn_manager) as uow:
-            # Lectura (desde BD producción)
-            ciudad = uow.ciudades.obtener_por_codigo("01")
-            
-            # Escritura (a BD pruebas/local)
-            orden = uow.service_writer.insertar_servicio(servicio_dto)
-    """
-    
-    def __init__(self, connection_manager: ConnectionManager):
-        """
-        Inicializa el UoW dual.
-        
-        Args:
-            connection_manager: Gestor de conexiones
-        """
-        self._conn_manager = connection_manager
-        
-        # Lazy initialization
-        from ..repositories.ciudad_repository import CiudadRepository
-        from ..repositories.cliente_repository import ClienteRepository
-        from ..repositories.punto_repository import PuntoRepository
-        from ..repositories.sucursal_repository import SucursalRepository
-        from ..repositories.servicio_repository import ServicioRepository
-        from ..repositories.service_writer_repository import ServiceWriterRepository
-        
-        self._ciudad_repo = None
-        self._cliente_repo = None
-        self._punto_repo = None
-        self._sucursal_repo = None
-        self._servicio_repo = None
-        self._service_writer = None
-    
-    # ═══════════════════════════════════════════════════════════
-    # REPOSITORIOS DE LECTURA (BD Producción)
-    # ═══════════════════════════════════════════════════════════
-    
-    @property
-    def ciudades(self):
-        """Repositorio de ciudades (lectura)"""
-        if self._ciudad_repo is None:
-            from ..repositories.ciudad_repository import CiudadRepository
-            self._ciudad_repo = CiudadRepository(self._conn_manager.get_read_connection())
-        return self._ciudad_repo
-    
-    @property
-    def clientes(self):
-        """Repositorio de clientes (lectura)"""
-        if self._cliente_repo is None:
-            from ..repositories.cliente_repository import ClienteRepository
-            self._cliente_repo = ClienteRepository(self._conn_manager.get_read_connection())
-        return self._cliente_repo
-    
-    @property
-    def puntos(self):
-        """Repositorio de puntos (lectura)"""
-        if self._punto_repo is None:
-            from ..repositories.punto_repository import PuntoRepository
-            self._punto_repo = PuntoRepository(
-                self._conn_manager.get_read_connection(),
-                ciudad_repo=self.ciudades,
-                sucursal_repo=self.sucursales,
-                cliente_repo=self.clientes
-            )
-        return self._punto_repo
-    
-    @property
-    def sucursales(self):
-        """Repositorio de sucursales (lectura)"""
-        if self._sucursal_repo is None:
-            from ..repositories.sucursal_repository import SucursalRepository
-            self._sucursal_repo = SucursalRepository(
-                self._conn_manager.get_read_connection(),
-                ciudad_repo=self.ciudades
-            )
-        return self._sucursal_repo
-    
-    @property
-    def servicios(self):
-        """Repositorio de servicios/categorías/valores (lectura)"""
-        if self._servicio_repo is None:
-            from ..repositories.servicio_repository import ServicioRepository
-            self._servicio_repo = ServicioRepository(self._conn_manager.get_read_connection())
-        return self._servicio_repo
-    
-    # ═══════════════════════════════════════════════════════════
-    # REPOSITORIO DE ESCRITURA (BD Pruebas/Local)
-    # ═══════════════════════════════════════════════════════════
-    
-    @property
-    def service_writer(self):
-        """Repositorio de escritura de servicios (escritura)"""
-        if self._service_writer is None:
-            from ..repositories.service_writer_repository import ServiceWriterRepository
-            self._service_writer = ServiceWriterRepository(
-                self._conn_manager.get_write_connection()
-            )
-        return self._service_writer
-    
-    # ═══════════════════════════════════════════════════════════
-    # CONTEXT MANAGER
-    # ═══════════════════════════════════════════════════════════
-    
-    def __enter__(self):
-        """Context manager entry"""
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit"""
-        # El ConnectionManager ya maneja el cierre
-        pass

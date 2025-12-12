@@ -11,7 +11,7 @@ from typing import Optional
 from decimal import Decimal
 
 
-@dataclass(frozen=True)
+@dataclass
 class ServicioDTO:
     """
     Data Transfer Object para datos de servicio (tabla CgsServicios).
@@ -137,6 +137,8 @@ class ServicioDTO:
     
     # Archivo de origen
     archivo_detalle: Optional[str] = None
+
+    usuario_registro_id: str | None = None
     
     # ═══════════════════════════════════════════════════════════
     # VALIDACIONES POST-INIT

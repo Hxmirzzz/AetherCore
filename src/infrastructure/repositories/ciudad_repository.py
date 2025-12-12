@@ -1,8 +1,8 @@
 from typing import Dict
-from src.infrastructure.database.connection import IDatabaseConnection
+from src.infrastructure.database.connection_manager import ConnectionManager
 
 class CiudadRepository:
-    def __init__(self, connection: IDatabaseConnection):
+    def __init__(self, connection: ConnectionManager):
         self._conn = connection
 
     def obtener_todas(self) -> Dict[str, str]:

@@ -13,7 +13,7 @@ from typing import Optional
 
 # Config y DB
 from src.infrastructure.config.settings import get_config
-from src.infrastructure.database.connection import SqlServerConnection, IDatabaseConnection
+from src.infrastructure.database.connection_manager import ConnectionManager
 from src.infrastructure.database.unit_of_work import UnitOfWork
 
 # Repos existentes (otros se agregarán cuando estén listos)
@@ -60,7 +60,7 @@ class ApplicationContainer:
 
     # ====== SINGLETON-LIKE ======
     _config = None
-    _db_conn: Optional[IDatabaseConnection] = None
+    _conn_manager: Optional[ConnectionManager] = None
 
     # ---------- Config ----------
     def config(self):
@@ -70,39 +70,54 @@ class ApplicationContainer:
         return self._config
 
     # ---------- DB Connection ----------
-    def db_connection(self) -> IDatabaseConnection:
+    def connection_manager(self) -> ConnectionManager:
         """
-        Singleton soft de conexión a SQL Server.
-        Si tu SqlServerConnection ya lee las credenciales desde Config internamente, basta instanciarlo.
-        Si requiere parámetros explícitos, extrae aquí desde self.config().
+        Singleton soft de ConnectionManager.
+        Maneja las DOS conexiones: prod (lectura) y test (escritura).
         """
-        if self._db_conn is None:
-            self._db_conn = SqlServerConnection(self.config().database)
-        return self._db_conn
+        if self._conn_manager is None:
+            self._conn_manager = ConnectionManager(self.config())
+        return self._conn_manager
 
+    # ---------- Conexiones individuales ----------
+    def db_connection_read(self):
+        """Conexión de LECTURA (prod)"""
+        return self.connection_manager().get_read_connection()
+
+    def db_connection_write(self):
+        """Conexión de ESCRITURA (test)"""
+        return self.connection_manager().get_write_connection()
+
+    # ========== REPOSITORIOS ==========
     def ciudad_repository(self) -> CiudadRepository:
-        return CiudadRepository(self.db_connection())
+        """Repositorio de ciudades (usa conexión de LECTURA)"""
+        return CiudadRepository(self.db_connection_read())
 
     def cliente_repository(self) -> ClienteRepository:
-        return ClienteRepository(self.db_connection())
+        """Repositorio de clientes (usa conexión de LECTURA)"""
+        return ClienteRepository(self.db_connection_read())
 
     def sucursal_repository(self) -> SucursalRepository:
-        return SucursalRepository(self.db_connection())
+        """Repositorio de sucursales (usa conexión de LECTURA)"""
+        return SucursalRepository(self.db_connection_read())
 
     def punto_repository(self) -> PuntoRepository:
-        return PuntoRepository(self.db_connection())
+        """Repositorio de puntos (usa conexión de LECTURA)"""
+        return PuntoRepository(self.db_connection_read())
 
     def servicio_repository(self) -> ServicioRepository:
-        return ServicioRepository(self.db_connection())
+        """Repositorio de servicios (usa conexión de LECTURA)"""
+        return ServicioRepository(self.db_connection_read())
 
     def service_writer_repository(self) -> ServiceWriterRepository:
-        """Repositorio de escritura para insertar servicios."""
-        return ServiceWriterRepository(self.db_connection())
+        """Repositorio de escritura (usa conexión de ESCRITURA)"""
+        return ServiceWriterRepository(self.db_connection_write())
 
-    # ========== SERVICIOS DE APLICACIÓN (NUEVO) ==========
+    # ========== SERVICIOS DE APLICACIÓN ==========
     def data_mapper_service(self) -> DataMapperService:
         """Servicio de mapeo de datos archivo -> DTOs."""
-        return DataMapperService(self.unit_of_work())
+        # Le pasamos el ConnectionManager para que acceda a ambas BDs
+        return DataMapperService(self.connection_manager())
 
     def insertion_service(self) -> InsertionService:
         """Servicio de inserción de servicios en BD."""
@@ -113,8 +128,7 @@ class ApplicationContainer:
 
     # Si en algún lugar quieres un UoW desde el contenedor:
     def unit_of_work(self):
-        from src.infrastructure.database.unit_of_work import UnitOfWork
-        return UnitOfWork(self.db_connection())
+        return UnitOfWork(self.db_connection_read())
 
     # ====== EXCEL ======
     def excel_styler(self) -> ExcelStyler:
@@ -132,8 +146,7 @@ class ApplicationContainer:
         """Factory principal para el caso de uso XML → Excel + Respuesta."""
         return XMLProcessor(
             reader=self.xml_file_reader(),
-            transformer=self.xml_data_transformer(),
-            insertion_service=self.insertion_service()  # 🆕 NUEVO
+            transformer=self.xml_data_transformer()
         )
         
     # ====== TXT PROCESSORS ======
@@ -145,8 +158,7 @@ class ApplicationContainer:
         return TXTProcessor(
             reader=self.txt_file_reader(),
             transformer=self.txt_data_transformer(),
-            paths=self.path_manager(),
-            insertion_service=self.insertion_service()  # 🆕 NUEVO
+            paths=self.path_manager()
         )
         
     # ====== FILE SYSTEM ======
@@ -169,3 +181,9 @@ class ApplicationContainer:
             debounce_ms=800,
             txt_processor=self.txt_processor(),
         )
+
+    # ====== CLEANUP ======
+    def close_all_connections(self):
+        """Cierra todas las conexiones al finalizar"""
+        if self._conn_manager:
+            self._conn_manager.close_all()

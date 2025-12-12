@@ -34,8 +34,8 @@ class TransaccionDTO:
     
     # Registro
     fecha_registro: datetime
-    usuario_registro_id: str
-    
+    usuario_registro_id: str | None = None
+        
     # ═══════════════════════════════════════════════════════════
     # CAMPOS OPCIONALES (con defaults)
     # ═══════════════════════════════════════════════════════════

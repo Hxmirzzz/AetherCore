@@ -6,49 +6,49 @@ from __future__ import annotations
 from typing import Dict, Optional, Any
 import logging
 
-from src.infrastructure.database.connection import IDatabaseConnection
+from src.infrastructure.database.connection_manager import ConnectionManager
 
 logger = logging.getLogger(__name__)
 
 class ServicioRepository:
-    def __init__(self, connection: IDatabaseConnection):
+    def __init__(self, connection: ConnectionManager):
         self._conn = connection
 
     # ---- Servicios ----
-    def obtener_servicio_por_codigo(self, cod_servicio: str) -> Optional[Dict[str, Any]]:
+    def obtener_servicio_por_codigo(self, orden_servicio: str) -> Optional[Dict[str, Any]]:
         try:
             query = """
-                SELECT s.cod_servicio, s.servicio AS nombre_servicio, s.cod_categoria
-                FROM adm_servicios AS s
-                WHERE s.cod_servicio = ?
+                SELECT s.orden_servicio, s.numero_pedido AS numero_pedido, s.cod_concepto
+                FROM cgs_servicios AS s
+                WHERE s.orden_servicio = ?
             """
-            rows = self._conn.execute_query(query, [cod_servicio])
+            rows = self._conn.execute_query(query, [orden_servicio])
             if not rows:
                 return None
             r = rows[0]
             return {
-                "cod_servicio": str(r[0]),
-                "nombre_servicio": r[1] or "",
-                "cod_categoria": str(r[2]) if r[2] is not None else "",
+                "orden_servicio": str(r[0]),
+                "numero_pedido": r[1] or "",
+                "cod_concepto": str(r[2]) if r[2] is not None else "",
             }
         except Exception:
-            logger.exception("Error en ServicioRepository.obtener_servicio_por_codigo(%s)", cod_servicio)
+            logger.exception("Error en ServicioRepository.obtener_servicio_por_codigo(%s)", orden_servicio)
             return None
 
     def obtener_servicios(self) -> Dict[str, Dict[str, Any]]:
         data: Dict[str, Dict[str, Any]] = {}
         try:
             query = """
-                SELECT s.cod_servicio, s.servicio AS nombre_servicio, s.cod_categoria
-                FROM adm_servicios AS s
+                SELECT s.orden_servicio, s.numero_pedido AS numero_pedido, s.cod_concepto
+                FROM cgs_servicios AS s
             """
             rows = self._conn.execute_query(query, [])
             for r in rows or []:
                 codigo = str(r[0])
                 data[codigo] = {
-                    "cod_servicio": codigo,
-                    "nombre_servicio": r[1] or "",
-                    "cod_categoria": str(r[2]) if r[2] is not None else "",
+                    "orden_servicio": codigo,
+                    "numero_pedido": r[1] or "",
+                    "cod_concepto": str(r[2]) if r[2] is not None else "",
                 }
         except Exception:
             logger.exception("Error en ServicioRepository.obtener_servicios()")
@@ -58,17 +58,17 @@ class ServicioRepository:
     def obtener_categoria_por_codigo(self, cod_categoria: str) -> Optional[Dict[str, Any]]:
         try:
             query = """
-                SELECT c.cod_categoria, c.categoria
-                FROM adm_categorias AS c
-                WHERE c.cod_categoria = ?
+                SELECT c.cod_concepto, c.nombre_concepto
+                FROM adm_conceptos AS c
+                WHERE c.cod_concepto = ?
             """
             rows = self._conn.execute_query(query, [cod_categoria])
             if not rows:
                 return None
             r = rows[0]
             return {
-                "cod_categoria": str(r[0]),
-                "categoria": r[1] or "",
+                "cod_concepto": str(r[0]),
+                "nombre_concepto": r[1] or "",
             }
         except Exception:
             logger.exception("Error en ServicioRepository.obtener_categoria_por_codigo(%s)", cod_categoria)
@@ -78,15 +78,15 @@ class ServicioRepository:
         data: Dict[str, Dict[str, Any]] = {}
         try:
             query = """
-                SELECT c.cod_categoria, c.categoria
-                FROM adm_categorias AS c
+                SELECT c.cod_concepto, c.nombre_concepto
+                FROM adm_conceptos AS c
             """
             rows = self._conn.execute_query(query, [])
             for r in rows or []:
                 codigo = str(r[0])
                 data[codigo] = {
-                    "cod_categoria": codigo,
-                    "categoria": r[1] or "",
+                    "cod_concepto": codigo,
+                    "nombre_concepto": r[1] or "",
                 }
         except Exception:
             logger.exception("Error en ServicioRepository.obtener_categorias()")
