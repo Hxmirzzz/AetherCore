@@ -116,7 +116,6 @@ class ApplicationContainer:
     # ========== SERVICIOS DE APLICACIÓN ==========
     def data_mapper_service(self) -> DataMapperService:
         """Servicio de mapeo de datos archivo -> DTOs."""
-        # Le pasamos el ConnectionManager para que acceda a ambas BDs
         return DataMapperService(self.connection_manager())
 
     def insertion_service(self) -> InsertionService:
@@ -146,7 +145,8 @@ class ApplicationContainer:
         """Factory principal para el caso de uso XML → Excel + Respuesta."""
         return XMLProcessor(
             reader=self.xml_file_reader(),
-            transformer=self.xml_data_transformer()
+            transformer=self.xml_data_transformer(),
+            insertion_service=self.insertion_service()
         )
         
     # ====== TXT PROCESSORS ======

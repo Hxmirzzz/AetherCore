@@ -14,6 +14,7 @@ from src.infrastructure.config.mapeos import TextosConstantes
 from .xml_file_reader import XmlFileReader
 from .xml_mappers import map_elements, extract_cc_from_filename, build_timestamp_for_response
 from .xml_data_transformer import XmlDataTransformer
+from src.application.services.insertion_service import InsertionService, ResultadoInsercion
 
 Config = get_config()
 logger = logging.getLogger(__name__)
@@ -62,9 +63,15 @@ class XMLProcessor:
     Procesador principal de archivos XML.
     Replica EXACTAMENTE la lógica del código original.
     """
-    def __init__(self, reader: XmlFileReader | None = None, transformer: XmlDataTransformer | None = None):
+    def __init__(
+        self,
+        reader: XmlFileReader | None = None,
+        transformer: XmlDataTransformer | None = None,
+        insertion_service: InsertionService | None = None
+    ):
         self._reader = reader or XmlFileReader()
         self._transformer = transformer or XmlDataTransformer()
+        self._insertion = insertion_service
 
     def procesar_archivo_xml(self, ruta_xml: Path, ruta_excel: Path, puntos_info: Dict[str, Dict[str, str]], conn: Any) -> bool:
         """
@@ -103,6 +110,45 @@ class XMLProcessor:
                 logger.warning("XML '%s' no contiene órdenes ni remesas", ruta_xml.name)
                 self._manejar_xml_fallido(ruta_xml, "2", "XML sin datos de órdenes/remesas", conn)
                 return False
+            
+            resultados_insercion: List[ResultadoInsercion] = []
+            
+            if self._insertion:
+                logger.info("Iniciando inserción en BD...")
+                
+                for fila in ordenes_filas:
+                    order_data = self._fila_to_order_data(fila)
+                    resultado = self._insertion.insertar_desde_xml_order(
+                        order_data, 
+                        ruta_xml.name
+                    )
+                    resultados_insercion.append(resultado)
+                    
+                    if resultado.exitoso:
+                        logger.info(f"✅ Order {resultado.numero_pedido} → {resultado.orden_servicio}")
+                    else:
+                        logger.warning(f"❌ Order {resultado.numero_pedido} → Error: {resultado.error}")
+                
+                for fila in remesas_filas:
+                    remit_data = self._fila_to_remit_data(fila)
+                    resultado = self._insertion.insertar_desde_xml_remit(
+                        remit_data, 
+                        ruta_xml.name
+                    )
+                    resultados_insercion.append(resultado)
+                    
+                    if resultado.exitoso:
+                        logger.info(f"✅ Remit {resultado.numero_pedido} → {resultado.orden_servicio}")
+                    else:
+                        logger.warning(f"❌ Remit {resultado.numero_pedido} → Error: {resultado.error}")
+                
+                # Resumen
+                exitosos = sum(1 for r in resultados_insercion if r.exitoso)
+                logger.info(f"Inserción completada: {exitosos}/{len(resultados_insercion)} exitosos")
+                if exitosos < len(resultados_insercion):
+                    logger.warning("Hubo errores en la inserción a BD, pero el procesamiento XML continúa")
+            else:
+                logger.warning("InsertionService no disponible, se omite inserción en BD")
 
             dfs = self._transformer.to_dataframes(ordenes_filas, remesas_filas)
             df_ordenes = dfs["ordenes"]
@@ -165,44 +211,61 @@ class XMLProcessor:
             self._manejar_xml_fallido(ruta_xml, "2", f"Error inesperado: {e}", conn)
             return False
 
-    def _determinar_estado_respuesta(
-        self,
-        df_ordenes: pd.DataFrame,
-        df_remesas: pd.DataFrame
-    ) -> str:
-        """
-        Determina el estado de respuesta basado en si hay puntos no encontrados.
+    def _fila_to_order_data(self, fila: Dict[str, Any]) -> Dict[str, Any]:
+        """Convierte una fila de order a formato compatible con InsertionService"""
+        # Extraer denominaciones
+        denominaciones = []
+        for key, value in fila.items():
+            if isinstance(key, str) and key.startswith('$'):
+                # Parsear valor (ej: "$5.000.000" → 5000000)
+                valor_str = str(value).replace('$', '').replace('.', '').replace(',', '')
+                try:
+                    amount = int(valor_str)
+                    if amount > 0:
+                        # Extraer código (ej: "$50000 AD" → "50000AD")
+                        code = key.replace('$', '').replace(' ', '')
+                        denominaciones.append({'code': code, 'amount': amount})
+                except ValueError:
+                    continue
         
-        Returns:
-            "1" si todos los puntos fueron encontrados
-            "2" si algún punto no fue encontrado
-        """
-        textos_error = [
-            TextosConstantes.PUNTO_NO_ENCONTRADO_XML,
-            TextosConstantes.CLIENTE_NO_ENCONTRADO,
-            TextosConstantes.CIUDAD_NO_ENCONTRADA
-        ]
-
-        def tiene_errores(df: pd.DataFrame) -> bool:
-            if df.empty:
-                return False
-            for col in ['NOMBRE PUNTO', 'ENTIDAD', 'CIUDAD']:
-                if col in df.columns and not df[col].empty:
-                    col_series = df[col].astype(str)
-                    for texto_error in textos_error:
-                        if col_series.str.contains(texto_error, case=False, na=False).any():
-                            logger.warning(
-                                "Estado '2': encontrado '%s' en columna '%s'",
-                                texto_error, col
-                            )
-                            return True
-            return False
-
-        if tiene_errores(df_ordenes) or tiene_errores(df_remesas):
-            return "2"
-        return "1"
+        return {
+            'id': fila.get('ID', ''),
+            'entityReferenceID': fila.get('CODIGO', ''),
+            'deliveryDate': self._parse_fecha_display(fila.get('FECHA DE ENTREGA', '')),
+            'orderDate': self._parse_fecha_display(fila.get('FECHA DE ENTREGA', '')),
+            'primaryTransport': fila.get('TRANSPORTADORA', ''),
+            'denominaciones': denominaciones,
+            'divisa': 'COP'
+        }
+    
+    def _fila_to_remit_data(self, fila: Dict[str, Any]) -> Dict[str, Any]:
+        """Convierte una fila de remit a formato compatible con InsertionService"""
+        return {
+            'id': fila.get('ID', ''),
+            'entityReferenceID': fila.get('CODIGO', ''),
+            'pickupDate': self._parse_fecha_display(fila.get('FECHA DE ENTREGA', '')),
+            'divisa': 'COP'
+        }
+    
+    def _parse_fecha_display(self, fecha_display: str) -> str:
+        """Convierte fecha DD/MM/YYYY a YYYY-MM-DD"""
+        if not fecha_display or '/' not in fecha_display:
+            return ''
+        try:
+            parts = fecha_display.split('/')
+            return f"{parts[2]}-{parts[1]}-{parts[0]}"  # YYYY-MM-DD
+        except:
+            return ''
 
     def _estados_por_id(self, df_ordenes: pd.DataFrame, df_remesas: pd.DataFrame) -> Dict[str, str]:
+        """
+        Determina el estado por ID combinando:
+        1. Validación de datos (puntos no encontrados, etc.)
+        2. Resultado de inserción en BD
+        
+        Returns:
+            Dict {ID: estado} donde estado es "1" (éxito) o "2" (error)
+        """
         textos_error = [
             TextosConstantes.PUNTO_NO_ENCONTRADO_XML,
             TextosConstantes.CLIENTE_NO_ENCONTRADO,
@@ -248,7 +311,6 @@ class XMLProcessor:
         )
         
         try:
-            # Generar respuesta de error
             ids_dummy = [ruta_xml.name]
             cc_local = extract_cc_from_filename(ruta_xml.name)
             

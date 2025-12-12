@@ -101,7 +101,7 @@ def _build_puntos_info(container: ApplicationContainer) -> Dict[str, Dict[str, A
                 return converted_data
 
         logger.info("PuntoRepository no expone método dict; usando consulta directa (fallback).")
-        conn = container.db_connection()
+        conn = container.db_connection_read()
 
         query = """
             SELECT
@@ -198,19 +198,19 @@ def main():
         logger.info("Primeras 5 claves: %s", list(puntos_info.keys())[:5])
     logger.info("========================")
     
-    conn = container.db_connection()
     orchestrator = container.xml_orchestrator()
 
     try:
         if args.once:
             logger.info("Ejecutando en modo --once (auto: todos los tipos)")
-            orchestrator.run_once_all(puntos_info, conn, only=args.only)
+            orchestrator.run_once_all(puntos_info, None, only=args.only)
         else:
             logger.info("Ejecutando en modo --watch (auto: todos los tipos) — Ctrl+C para salir")
-            orchestrator.run_watch_all(puntos_info, conn, only=args.only)
+            orchestrator.run_watch_all(puntos_info, None, only=args.only)
     finally:
         try:
-            conn.close()
+            container.close_all_connections()
+            logger.info("Conexiones cerradas correctamente")
         except Exception:
             logger.exception("Error cerrando conexión")
 
