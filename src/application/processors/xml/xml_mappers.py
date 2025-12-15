@@ -192,6 +192,9 @@ def map_elements(elements: List[ET.Element], tipo_servicio: str, puntos_info: Di
         
         fila = {
             'ID': id_elemento,
+            'deliveryDate': delivery_date_raw,
+            'orderDate': order_date_raw,
+            'pickupDate': pickup_date_raw,
             'FECHA DE ENTREGA': fecha_entrega,
             'RANGO': rango_inicio,
             'ENTIDAD': entidad,

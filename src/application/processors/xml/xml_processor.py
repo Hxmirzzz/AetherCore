@@ -212,38 +212,39 @@ class XMLProcessor:
             return False
 
     def _fila_to_order_data(self, fila: Dict[str, Any]) -> Dict[str, Any]:
-        """Convierte una fila de order a formato compatible con InsertionService"""
-        # Extraer denominaciones
-        denominaciones = []
-        for key, value in fila.items():
-            if isinstance(key, str) and key.startswith('$'):
-                # Parsear valor (ej: "$5.000.000" → 5000000)
-                valor_str = str(value).replace('$', '').replace('.', '').replace(',', '')
-                try:
-                    amount = int(valor_str)
-                    if amount > 0:
-                        # Extraer código (ej: "$50000 AD" → "50000AD")
-                        code = key.replace('$', '').replace(' ', '')
-                        denominaciones.append({'code': code, 'amount': amount})
-                except ValueError:
-                    continue
-        
-        return {
-            'id': fila.get('ID', ''),
-            'entityReferenceID': fila.get('CODIGO', ''),
-            'deliveryDate': self._parse_fecha_display(fila.get('FECHA DE ENTREGA', '')),
-            'orderDate': self._parse_fecha_display(fila.get('FECHA DE ENTREGA', '')),
-            'primaryTransport': fila.get('TRANSPORTADORA', ''),
-            'denominaciones': denominaciones,
-            'divisa': 'COP'
-        }
+            """Convierte una fila de order a formato compatible con InsertionService"""
+            denominaciones = []
+            for key, value in fila.items():
+                if isinstance(key, str) and key.startswith('$'):
+                    valor_str = str(value).replace('$', '').replace('.', '').replace(',', '')
+                    try:
+                        amount = int(valor_str)
+                        if amount > 0:
+                            code = key.replace('$', '').replace(' ', '')
+                            denominaciones.append({'code': code, 'amount': amount})
+                    except ValueError:
+                        continue
+            
+            return {
+                'id': fila.get('ID', ''),
+                'entityReferenceID': fila.get('CODIGO', ''),
+                'deliveryDate': fila.get('deliveryDate', ''),
+                'orderDate': fila.get('orderDate', ''),
+                'pickupDate': fila.get('pickupDate', ''),
+                'primaryTransport': fila.get('TRANSPORTADORA', ''),
+                'denominaciones': denominaciones,
+                'divisa': 'COP'
+            }
     
     def _fila_to_remit_data(self, fila: Dict[str, Any]) -> Dict[str, Any]:
         """Convierte una fila de remit a formato compatible con InsertionService"""
         return {
             'id': fila.get('ID', ''),
             'entityReferenceID': fila.get('CODIGO', ''),
-            'pickupDate': self._parse_fecha_display(fila.get('FECHA DE ENTREGA', '')),
+            'deliveryDate': fila.get('deliveryDate', ''),
+            'orderDate': fila.get('orderDate', ''),
+            'pickupDate': fila.get('pickupDate', ''),
+            'primaryTransport': fila.get('TRANSPORTADORA', ''),
             'divisa': 'COP'
         }
     

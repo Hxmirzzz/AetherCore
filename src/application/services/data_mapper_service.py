@@ -252,12 +252,10 @@ class DataMapperService:
         if not entity_ref:
             raise ValueError("entityReferenceID no puede estar vacío")
         
-        # Si no nos pasan codigo_cliente_xml, intentar extraerlo del entity_ref
         if codigo_cliente_xml is None:
-            # Procesar formatos como "52-SUC-0075" o "47-0033"
             partes = entity_ref.replace('-SUC-', '-').split('-')
             if len(partes) >= 2:
-                codigo_cliente_xml = partes[0]  # Primera parte es el CC Code
+                codigo_cliente_xml = partes[0]
                 logger.debug(f"Extraído CC Code del XML: '{codigo_cliente_xml}'")
         
         codigo_punto_destino = self._limpiar_codigo_punto_xml(entity_ref)
@@ -279,7 +277,8 @@ class DataMapperService:
         
         cod_cliente = punto_info['cod_cliente']
         cod_sucursal = punto_info['cod_sucursal']
-        cod_punto_origen = punto_info['cod_fondo'] or codigo_punto_destino
+        codigo_punto_pk = punto_info.get('cod_punto_bd', codigo_punto_destino)
+        cod_punto_origen = punto_info['cod_fondo'] or codigo_punto_pk
         
         logger.info(
             f"✅ Punto resuelto correctamente: "
@@ -289,11 +288,9 @@ class DataMapperService:
         # ────────────────────────────────────────────────────────
         # 3. PARSEAR FECHAS
         # ────────────────────────────────────────────────────────
-        # deliveryDate: fecha de programación
         delivery_date_str = str(order_data.get('deliveryDate', '')).strip()
         fecha_programacion, hora_programacion = self._parsear_fecha_xml(delivery_date_str)
         
-        # orderDate: fecha de solicitud
         order_date_str = str(order_data.get('orderDate', '')).strip()
         fecha_solicitud, hora_solicitud = self._parsear_fecha_xml(order_date_str)
         
@@ -305,9 +302,7 @@ class DataMapperService:
         # ────────────────────────────────────────────────────────
         # 4. DETERMINAR CONCEPTO (PROVISION)
         # ────────────────────────────────────────────────────────
-        # En XML, 'order' siempre es provisión
-        # Determinar si es ATM o Oficinas según contexto (simplificado: usar ATM por defecto)
-        cod_concepto = 3  # PROVISION ATM (puede refinarse con más lógica)
+        cod_concepto = 2
         
         # ────────────────────────────────────────────────────────
         # 5. CALCULAR VALORES DESDE DENOMINACIONES
@@ -348,7 +343,7 @@ class DataMapperService:
             cod_punto_origen=cod_punto_origen,
             indicador_tipo_origen='F',  # Fondo
             cod_cliente_destino=cod_cliente,
-            cod_punto_destino=codigo_punto_destino,
+            cod_punto_destino=codigo_punto_pk,
             indicador_tipo_destino='P',  # Punto
             fallido=False,
             valor_billete=valor_billete,
@@ -409,7 +404,7 @@ class DataMapperService:
         # ────────────────────────────────────────────────────────
         punto_info = self._obtener_info_completa_punto_sin_cliente(
             codigo_punto_origen,
-            codigo_cliente_xml  # 🔥 ESTO ES LO QUE FALTABA
+            codigo_cliente_xml
         )
         
         if not punto_info:
@@ -421,9 +416,8 @@ class DataMapperService:
         
         cod_cliente = punto_info['cod_cliente']
         cod_sucursal = punto_info['cod_sucursal']
-        
-        # Fondo asociado o se usa el origen si no tiene fondo
-        cod_punto_destino = punto_info['cod_fondo'] or codigo_punto_origen
+        codigo_punto_pk = punto_info.get('cod_punto_bd', codigo_punto_origen)
+        cod_punto_destino = punto_info['cod_fondo'] or codigo_punto_pk
         
         logger.info(
             f"✅ Punto remit resuelto: "
@@ -436,6 +430,10 @@ class DataMapperService:
         pickup_date_str = str(remit_data.get('pickupDate', '')).strip()
         fecha_solicitud, hora_solicitud = self._parsear_fecha_xml(pickup_date_str)
         
+        # AGREGAR ESTO: Para que la programación no sea NULL
+        delivery_date_str = str(remit_data.get('deliveryDate', '')).strip()
+        fecha_programacion, hora_programacion = self._parsear_fecha_xml(delivery_date_str)
+        
         if not fecha_solicitud:
             raise ValueError("pickupDate no puede estar vacío")
         
@@ -447,6 +445,8 @@ class DataMapperService:
             raise ValueError("ID del remit no puede estar vacío")
         
         divisa = remit_data.get('divisa', 'COP')
+        primary_transport = remit_data.get('primaryTransport', '')
+        observaciones = f"Transportadora: {primary_transport}" if primary_transport else None
         
         servicio_dto = ServicioDTO(
             numero_pedido=numero_pedido,
@@ -456,9 +456,11 @@ class DataMapperService:
             tipo_traslado='N',
             fecha_solicitud=fecha_solicitud,
             hora_solicitud=hora_solicitud,
+            fecha_programacion=fecha_programacion,
+            hora_programacion=hora_programacion,
             cod_estado=MapeoEstadoInicial.obtener_estado_inicial_servicio(),
             cod_cliente_origen=cod_cliente,
-            cod_punto_origen=codigo_punto_origen,
+            cod_punto_origen=codigo_punto_pk,
             indicador_tipo_origen='P',  # Punto
             cod_cliente_destino=cod_cliente,
             cod_punto_destino=cod_punto_destino,
@@ -468,6 +470,7 @@ class DataMapperService:
             valor_moneda=Decimal('0'),
             valor_servicio=Decimal('0'),
             modalidad_servicio=ModalidadServicio.obtener_modalidad_default(),
+            observaciones=observaciones,
             archivo_detalle=nombre_archivo
         )
         

@@ -203,7 +203,7 @@ class TransaccionDTO:
             cod_sucursal=cod_sucursal,
             fecha_registro=datetime.now(),
             usuario_registro_id=usuario_id,
-            tipo_transaccion='Checkin',
+            tipo_transaccion='PV',
             divisa=divisa,
             valor_billetes_declarado=valor_billetes,
             valor_monedas_declarado=valor_monedas,
@@ -239,7 +239,7 @@ class TransaccionDTO:
             cod_sucursal=cod_sucursal,
             fecha_registro=datetime.now(),
             usuario_registro_id=usuario_id,
-            tipo_transaccion='Checkin',
+            tipo_transaccion='RC',
             divisa=divisa,
             valor_billetes_declarado=Decimal('0'),  # Desconocido
             valor_monedas_declarado=Decimal('0'),   # Desconocido
