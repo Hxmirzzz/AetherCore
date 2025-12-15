@@ -215,7 +215,7 @@ class DataMapperService:
         self,
         order_data: Dict[str, Any],
         nombre_archivo: str,
-        codigo_cliente_xml: Optional[str] = None  # <-- NUEVO PARÁMETRO
+        codigo_cliente_xml: Optional[str] = None
     ) -> Tuple[ServicioDTO, TransaccionDTO]:
         """
         Mapea un elemento 'order' (XML) a DTOs de servicio y transacción.
@@ -267,7 +267,7 @@ class DataMapperService:
         # ────────────────────────────────────────────────────────
         punto_info = self._obtener_info_completa_punto_sin_cliente(
             codigo_punto_destino, 
-            codigo_cliente_xml  # <-- Ahora se usa correctamente
+            codigo_cliente_xml
         )
         
         if not punto_info:
@@ -388,26 +388,60 @@ class DataMapperService:
         """
         logger.info(f"Mapeando remit XML: {remit_data.get('id')}")
         
-        # Similar a order pero con CodConcepto = 1 (RECOLECCION)
-        # y valores en 0
-        
+        # ────────────────────────────────────────────────────────
+        # 1. EXTRAER CÓDIGOS DEL XML (igual que en order)
+        # ────────────────────────────────────────────────────────
         entity_ref = str(remit_data.get('entityReferenceID', '')).strip()
+        if not entity_ref:
+            raise ValueError("entityReferenceID no puede estar vacío")
+        
+        # Extraer código de cliente del entity_ref (igual que en order)
+        codigo_cliente_xml = None
+        partes = entity_ref.replace('-SUC-', '-').split('-')
+        if len(partes) >= 2:
+            codigo_cliente_xml = partes[0]  # Primera parte es el CC Code
+            logger.debug(f"Extraído CC Code del XML: '{codigo_cliente_xml}'")
+        
         codigo_punto_origen = self._limpiar_codigo_punto_xml(entity_ref)
         
-        punto_info = self._obtener_info_completa_punto_sin_cliente(codigo_punto_origen)
+        # ────────────────────────────────────────────────────────
+        # 2. RESOLVER PUNTO (AHORA CON codigo_cliente_xml)
+        # ────────────────────────────────────────────────────────
+        punto_info = self._obtener_info_completa_punto_sin_cliente(
+            codigo_punto_origen,
+            codigo_cliente_xml  # 🔥 ESTO ES LO QUE FALTABA
+        )
+        
         if not punto_info:
-            raise ValueError(f"Punto no encontrado: {codigo_punto_origen}")
+            raise ValueError(
+                f"Punto no encontrado: XML='{entity_ref}', "
+                f"CC Code='{codigo_cliente_xml}', "
+                f"Punto limpio='{codigo_punto_origen}'"
+            )
         
         cod_cliente = punto_info['cod_cliente']
         cod_sucursal = punto_info['cod_sucursal']
+        
+        # Fondo asociado o se usa el origen si no tiene fondo
         cod_punto_destino = punto_info['cod_fondo'] or codigo_punto_origen
         
+        logger.info(
+            f"✅ Punto remit resuelto: "
+            f"XML '{entity_ref}' -> BD Cliente '{cod_cliente}', Sucursal '{cod_sucursal}'"
+        )
+        
+        # ────────────────────────────────────────────────────────
+        # 3. PARSEAR FECHA
+        # ────────────────────────────────────────────────────────
         pickup_date_str = str(remit_data.get('pickupDate', '')).strip()
         fecha_solicitud, hora_solicitud = self._parsear_fecha_xml(pickup_date_str)
         
         if not fecha_solicitud:
             raise ValueError("pickupDate no puede estar vacío")
         
+        # ────────────────────────────────────────────────────────
+        # 4. CONSTRUIR DTOs
+        # ────────────────────────────────────────────────────────
         numero_pedido = str(remit_data.get('id', '')).strip()
         if not numero_pedido:
             raise ValueError("ID del remit no puede estar vacío")
@@ -423,14 +457,16 @@ class DataMapperService:
             fecha_solicitud=fecha_solicitud,
             hora_solicitud=hora_solicitud,
             cod_estado=MapeoEstadoInicial.obtener_estado_inicial_servicio(),
+            cod_cliente_origen=cod_cliente,
             cod_punto_origen=codigo_punto_origen,
             indicador_tipo_origen='P',  # Punto
+            cod_cliente_destino=cod_cliente,
             cod_punto_destino=cod_punto_destino,
             indicador_tipo_destino='F',  # Fondo
             fallido=False,
-            valor_billete=Decimal('0'),  # Desconocido
-            valor_moneda=Decimal('0'),  # Desconocido
-            valor_servicio=Decimal('0'),  # Desconocido
+            valor_billete=Decimal('0'),
+            valor_moneda=Decimal('0'),
+            valor_servicio=Decimal('0'),
             modalidad_servicio=ModalidadServicio.obtener_modalidad_default(),
             archivo_detalle=nombre_archivo
         )
