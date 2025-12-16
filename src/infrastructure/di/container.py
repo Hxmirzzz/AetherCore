@@ -158,7 +158,8 @@ class ApplicationContainer:
         return TXTProcessor(
             reader=self.txt_file_reader(),
             transformer=self.txt_data_transformer(),
-            paths=self.path_manager()
+            paths=self.path_manager(),
+            insertion_service=self.insertion_service()
         )
         
     # ====== FILE SYSTEM ======

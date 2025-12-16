@@ -82,15 +82,18 @@ class DataMapperService:
         # ────────────────────────────────────────────────────────
         # 2. MAPEAR SERVICIO A CONCEPTO DE BD
         # ────────────────────────────────────────────────────────
-        codigo_servicio_origen = int(registro_tipo2.get('SERVICIO', 0))
-        cod_concepto = MapeoConceptoServicio.obtener_concepto_bd(codigo_servicio_origen)
-        
-        if not cod_concepto:
-            raise ValueError(
-                f"Servicio no mapeado: {codigo_servicio_origen}. "
-                f"Servicios soportados: {list(MapeoConceptoServicio.SERVICIO_TO_CONCEPTO.keys())}"
-            )
-        
+        servicio_raw = str(registro_tipo2.get('SERVICIO', '0')).strip()
+
+        try:
+            if ' - ' in servicio_raw:
+                codigo_servicio_origen = int(servicio_raw.split(' - ')[0])
+            else:
+                codigo_servicio_origen = int(servicio_raw)
+        except:
+            raise ValueError(f"Error en columna SERVICIO. No se pudo obtener el código numérico de '{servicio_raw}'. Error: {e}")
+
+        cod_concepto = 3
+
         es_provision = MapeoConceptoServicio.es_provision(codigo_servicio_origen)
         logger.debug(f"Servicio mapeado: {codigo_servicio_origen} → CodConcepto {cod_concepto} (Provisión: {es_provision})")
         
@@ -117,11 +120,20 @@ class DataMapperService:
         # 4. PARSEAR FECHA Y HORA
         # ────────────────────────────────────────────────────────
         fecha_servicio_str = str(registro_tipo2.get('FECHA SERVICIO', '')).strip()
-        if not fecha_servicio_str or len(fecha_servicio_str) != 8:
-            raise ValueError(f"FECHA SERVICIO inválida: '{fecha_servicio_str}'. Debe ser DDMMYYYY (8 dígitos).")
+        if not fecha_servicio_str:
+            raise ValueError(f"FECHA SERVICIO inválida: '{fecha_servicio_str}'.")
         
+        formato_con_barras = '%d/%m/%Y'
+
+        if len(fecha_servicio_str) == 8:
+            formato_a_usar = '%d%m%Y'
+        elif len(fecha_servicio_str) == 10:
+            formato_a_usar = formato_con_barras
+        else:
+            raise ValueError(f"FECHA SERVICIO inválida: '{fecha_servicio_str}'. Formato inesperado. Debe ser DDMMYYYY o DD/MM/YYYY.")
+
         try:
-            fecha_solicitud = datetime.strptime(fecha_servicio_str, '%d%m%Y').date()
+            fecha_solicitud = datetime.strptime(fecha_servicio_str, formato_a_usar).date()
         except ValueError as e:
             raise ValueError(f"Error parseando FECHA SERVICIO '{fecha_servicio_str}': {e}")
         
@@ -178,6 +190,7 @@ class DataMapperService:
             cod_cliente=cod_cliente,
             cod_sucursal=cod_sucursal,
             cod_concepto=cod_concepto,
+            tipo_traslado='N',
             fecha_solicitud=fecha_solicitud,
             hora_solicitud=hora_solicitud,
             cod_estado=MapeoEstadoInicial.obtener_estado_inicial_servicio(),
@@ -199,7 +212,7 @@ class DataMapperService:
         transaccion_dto = TransaccionDTO(
             cod_sucursal=cod_sucursal,
             fecha_registro=datetime.now(),
-            usuario_registro_id='ID_USER',
+            usuario_registro_id='e5926e18-33b1-468c-a979-e4e839a86f30',
             tipo_transaccion=TipoTransaccion.obtener_tipo_default(),
             divisa=divisa_limpia,
             valor_billetes_declarado=valor_billete,

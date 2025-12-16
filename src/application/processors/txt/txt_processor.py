@@ -11,6 +11,7 @@ from src.infrastructure.config.mapeos import TextosConstantes
 from src.application.processors.xml.xml_mappers import extract_cc_from_filename, build_timestamp_for_response
 from .txt_mappers import parse_tipo_records
 from src.infrastructure.config.mapeos import ClienteMapeos
+from src.application.services.insertion_service import InsertionService
 
 from src.infrastructure.repositories.ciudad_repository import CiudadRepository
 from src.infrastructure.repositories.sucursal_repository import SucursalRepository
@@ -87,10 +88,17 @@ class TXTResponseGenerator:
             return False
         
 class TXTProcessor:
-    def __init__(self, reader: TxtFileReader | None = None, transformer: TxtDataTransformer | None = None, paths: PathManager | None = None):
+    def __init__(
+        self,
+        reader: TxtFileReader | None = None,
+        transformer: TxtDataTransformer | None = None,
+        paths: PathManager | None = None,
+        insertion_service: InsertionService | None = None
+    ):
         self._reader = reader or TxtFileReader()
         self._transformer = transformer or TxtDataTransformer()
         self._paths = paths or PathManager()
+        self._insertion_service = insertion_service
 
     def procesar_archivo_txt(self, ruta_txt: Path, conn: Any) -> bool:
         try:
@@ -134,6 +142,43 @@ class TXTProcessor:
                     dict_sucursales,
                     dict_clientes
                 )
+
+                nit_cliente = 'DESCONOCIDO'
+                # 1. Intentar obtener el NIT del TIPO 1 (encabezado del archivo)
+                if df1 is not None and not df1.empty and 'NIT CLIENTE' in df1.columns:
+                    # Asumimos que el NIT es el mismo para todos los registros del archivo
+                    nit_cliente = str(df1['NIT CLIENTE'].iloc[0]).strip()
+                
+                if df2 is not None and not df2.empty:
+                    
+                    if self._insertion_service is None:
+                        logger.error("InsertionService no inyectado en TXTProcessor. No se pudo insertar Tipo 2.")
+                        # Si la inserción es crítica, se debería fallar aquí:
+                        # self._manejar_txt_fallido(ruta_txt, "2", "Fallo de inyección de InsertionService.", conn)
+                        # return False
+                        pass # Si no es crítica, se continúa sin inserción.
+                    else:
+                        registros_tipo2 = df2.to_dict('records')
+
+                        resultado_insercion_lista = self._insertion_service.insertar_multiples_desde_txt(
+                            registros_tipo2=registros_tipo2,
+                            nit_cliente=nit_cliente,
+                            nombre_archivo=ruta_txt.name
+                        )
+                        
+                        # Manejo del fallo de inserción
+                        fallidos = [r for r in resultado_insercion_lista if not r.exitoso]
+                        if fallidos:
+                            msg = f"Fallo en {len(fallidos)} de {len(resultado_insercion_lista)} inserciones Tipo 2. Primer error: {fallidos[0].error}"
+                            logger.error(msg)
+                            
+                            # NOTA: Aquí usted DEBE decidir cómo quiere manejar el fallo total.
+                            # Si un fallo en BD significa que *todo* el archivo debe fallar:
+                            # self._manejar_txt_fallido(ruta_txt, "2", f"Error en BD: {msg}", conn)
+                            # return False
+                            
+                            # Si se permite continuar (para generar la respuesta con estado '2' por ID):
+                            pass # Continúa el procesamiento.
 
                 ok_excel = self._transformer.write_excel_consolidated(out_xlsx, df1, df2, df3, hoja_titulo="Consolidado")
                 if not ok_excel:
