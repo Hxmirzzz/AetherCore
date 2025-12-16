@@ -52,7 +52,8 @@ class DataMapperService:
         self,
         registro_tipo2: Dict[str, Any],
         nit_cliente: str,
-        nombre_archivo: str
+        nombre_archivo: str,
+        fecha_generacion_txt: date
     ) -> Tuple[ServicioDTO, TransaccionDTO]:
         """
         Mapea un registro de TIPO 2 (TXT) a DTOs de servicio y transacción.
@@ -119,28 +120,34 @@ class DataMapperService:
         # ────────────────────────────────────────────────────────
         # 4. PARSEAR FECHA Y HORA
         # ────────────────────────────────────────────────────────
-        fecha_servicio_str = str(registro_tipo2.get('FECHA SERVICIO', '')).strip()
-        if not fecha_servicio_str:
-            raise ValueError(f"FECHA SERVICIO inválida: '{fecha_servicio_str}'.")
-        
-        formato_con_barras = '%d/%m/%Y'
-
-        if len(fecha_servicio_str) == 8:
-            formato_a_usar = '%d%m%Y'
-        elif len(fecha_servicio_str) == 10:
-            formato_a_usar = formato_con_barras
-        else:
-            raise ValueError(f"FECHA SERVICIO inválida: '{fecha_servicio_str}'. Formato inesperado. Debe ser DDMMYYYY o DD/MM/YYYY.")
-
-        try:
-            fecha_solicitud = datetime.strptime(fecha_servicio_str, formato_a_usar).date()
-        except ValueError as e:
-            raise ValueError(f"Error parseando FECHA SERVICIO '{fecha_servicio_str}': {e}")
-        
-        # Hora por defecto: 00:00:00 (no viene en TXT)
+        fecha_solicitud = fecha_generacion_txt
         hora_solicitud = time(0, 0, 0)
         
-        logger.debug(f"Fecha parseada: {fecha_solicitud} {hora_solicitud}")
+        # B) FECHA DE PROGRAMACIÓN (Viene del registro Tipo 2 - 'FECHA SERVICIO')
+        fecha_programacion_str = str(registro_tipo2.get('FECHA SERVICIO', '')).strip()
+        
+        if not fecha_programacion_str:
+            # Esto puede ser una advertencia, pero por ahora lo dejamos como error
+            # para asegurar la integridad de los datos
+            raise ValueError(f"FECHA SERVICIO inválida: '{fecha_programacion_str}'.") 
+
+        formato_con_barras = '%d/%m/%Y'
+        if len(fecha_programacion_str) == 8:
+            formato_a_usar = '%d%m%Y'
+        elif len(fecha_programacion_str) == 10:
+            formato_a_usar = formato_con_barras
+        else:
+            raise ValueError(f"FECHA SERVICIO inválida: '{fecha_programacion_str}'. Formato inesperado.")
+
+        try:
+            fecha_programacion: Optional[date] = datetime.strptime(fecha_programacion_str, formato_a_usar).date()
+        except ValueError as e:
+            raise ValueError(f"Error parseando FECHA SERVICIO '{fecha_programacion_str}': {e}")
+        
+        hora_programacion = time(0, 0, 0)
+
+        logger.debug(f"Fecha Solicitud (Tipo 1): {fecha_solicitud} {hora_solicitud}")
+        logger.debug(f"Fecha Programación (Tipo 2): {fecha_programacion} {hora_programacion}")
         
         # ────────────────────────────────────────────────────────
         # 5. CALCULAR VALORES (BILLETES Y MONEDAS)
@@ -193,6 +200,8 @@ class DataMapperService:
             tipo_traslado='N',
             fecha_solicitud=fecha_solicitud,
             hora_solicitud=hora_solicitud,
+            fecha_programacion=fecha_programacion,
+            hora_programacion=hora_programacion,
             cod_estado=MapeoEstadoInicial.obtener_estado_inicial_servicio(),
             cod_punto_origen=cod_punto_origen,
             indicador_tipo_origen=indicador_tipo_origen,

@@ -7,6 +7,7 @@ Este servicio coordina el proceso completo:
 3. Manejo de errores y logging
 """
 from typing import List, Dict, Any, Optional
+from datetime import date
 import logging
 
 from .data_mapper_service import DataMapperService
@@ -15,9 +16,7 @@ from ..dto.servicio_dto import ServicioDTO
 from ..dto.transaccion_dto import TransaccionDTO
 from src.infrastructure.database.unit_of_work import UnitOfWork
 
-
 logger = logging.getLogger(__name__)
-
 
 class ResultadoInsercion:
     """
@@ -83,7 +82,8 @@ class InsertionService:
         self,
         registro_tipo2: Dict[str, Any],
         nit_cliente: str,
-        nombre_archivo: str
+        nombre_archivo: str,
+        fecha_generacion_txt: date
     ) -> ResultadoInsercion:
         """
         Procesa e inserta un registro de TIPO 2 (TXT) en la BD.
@@ -114,7 +114,8 @@ class InsertionService:
             servicio_dto, transaccion_dto = self._mapper.mapear_desde_txt_tipo2(
                 registro_tipo2,
                 nit_cliente,
-                nombre_archivo
+                nombre_archivo,
+                fecha_generacion_txt
             )
             
             # 2. Insertar en BD
@@ -166,7 +167,8 @@ class InsertionService:
         self,
         registros_tipo2: List[Dict[str, Any]],
         nit_cliente: str,
-        nombre_archivo: str
+        nombre_archivo: str,
+        fecha_generacion_txt: date
     ) -> List[ResultadoInsercion]:
         """
         Procesa e inserta múltiples registros de TIPO 2 (TXT).
@@ -195,7 +197,8 @@ class InsertionService:
             resultado = self.insertar_desde_txt_tipo2(
                 registro,
                 nit_cliente,
-                nombre_archivo
+                nombre_archivo,
+                fecha_generacion_txt
             )
             resultados.append(resultado)
         
