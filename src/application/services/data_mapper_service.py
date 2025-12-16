@@ -360,12 +360,12 @@ class DataMapperService:
             cod_sucursal=cod_sucursal,
             fecha_registro=datetime.now(),
             usuario_registro_id='e5926e18-33b1-468c-a979-e4e839a86f30',
-            tipo_transaccion=TipoTransaccion.obtener_tipo_default(),
+            tipo_transaccion=TipoTransaccion.PROVISION_OFICINA,
             divisa=divisa,
             valor_billetes_declarado=valor_billete,
             valor_monedas_declarado=valor_moneda,
             valor_total_declarado=valor_billete + valor_moneda,
-            estado_transaccion=MapeoEstadoInicial.obtener_estado_inicial_transaccion()
+            estado_transaccion=MapeoEstadoInicial.PROVISION_EN_PROCESO
         )
         
         logger.info(f"Mapeo XML order completado para pedido {numero_pedido}")
@@ -478,12 +478,12 @@ class DataMapperService:
             cod_sucursal=cod_sucursal,
             fecha_registro=datetime.now(),
             usuario_registro_id='e5926e18-33b1-468c-a979-e4e839a86f30',
-            tipo_transaccion=TipoTransaccion.obtener_tipo_default(),
+            tipo_transaccion=TipoTransaccion.RECOLECCION_OFICINA,
             divisa=divisa,
             valor_billetes_declarado=Decimal('0'),
             valor_monedas_declarado=Decimal('0'),
             valor_total_declarado=Decimal('0'),
-            estado_transaccion=MapeoEstadoInicial.obtener_estado_inicial_transaccion()
+            estado_transaccion=MapeoEstadoInicial.REGISTRO_TESORERIA
         )
         
         logger.info(f"Mapeo XML remit completado para pedido {numero_pedido}")

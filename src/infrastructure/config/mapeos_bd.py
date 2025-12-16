@@ -45,13 +45,6 @@ class MapeoConceptoServicio:
         5: 1,  # RECOLECCION_DE_VALORES → RECOLECCION OFICINAS (RC)
     }
     
-    # Tipos de concepto (para referencia)
-    TIPOS_CONCEPTO: Dict[int, str] = {
-        1: 'RC',  # Recolección
-        2: 'PV',  # Provisión Oficinas
-        3: 'PR',  # Provisión ATM
-    }
-    
     @classmethod
     def obtener_concepto_bd(cls, codigo_servicio_origen: int) -> Optional[int]:
         """
@@ -250,6 +243,9 @@ class MapeoEstadoInicial:
       viene con estado 0 (Solicitado), se promueve automáticamente a 1 (Confirmado).
     - Esto lo hace el SP, pero debemos enviar el estado correcto.
     """
+
+    REGISTRO_TESORERIA = 'RegistroTesoreria'
+    PROVISION_EN_PROCESO = 'ProvisionEnProceso'
     
     @staticmethod
     def obtener_estado_inicial_servicio() -> int:
@@ -266,10 +262,9 @@ class MapeoEstadoInicial:
         """
         Retorna el estado inicial para una nueva transacción.
         
-        Returns:
-            'RegistroTesoreria'
+        Valores: strings
         """
-        return EstadoTransaccion.REGISTRO_TESORERIA.value
+        return MapeoEstadoInicial.REGISTRO_TESORERIA
 
 
 # ══════════════════════════════════════════════════════════════
@@ -301,16 +296,16 @@ class TipoTransaccion:
     """
     Tipos de transacción para CefTransacciones.
     
-    Por defecto: 'Checkin'
+    Por defecto: 'RC'
     """
     
-    CHECKIN = 'Checkin'
-    CHECKOUT = 'Checkout'
+    RECOLECCION_OFICINA = 'RC'
+    PROVISION_OFICINA = 'PV'
     
     @staticmethod
     def obtener_tipo_default() -> str:
         """Retorna el tipo por defecto: Checkin"""
-        return TipoTransaccion.CHECKIN
+        return TipoTransaccion.RECOLECCION_OFICINA
 
 
 # ══════════════════════════════════════════════════════════════

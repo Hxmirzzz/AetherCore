@@ -199,14 +199,15 @@ def main():
     logger.info("========================")
     
     orchestrator = container.xml_orchestrator()
+    conexion_activa = container.db_connection_read()
 
     try:
         if args.once:
             logger.info("Ejecutando en modo --once (auto: todos los tipos)")
-            orchestrator.run_once_all(puntos_info, None, only=args.only)
+            orchestrator.run_once_all(puntos_info, conexion_activa, only=args.only)
         else:
             logger.info("Ejecutando en modo --watch (auto: todos los tipos) — Ctrl+C para salir")
-            orchestrator.run_watch_all(puntos_info, None, only=args.only)
+            orchestrator.run_watch_all(puntos_info, conexion_activa, only=args.only)
     finally:
         try:
             container.close_all_connections()

@@ -9,6 +9,7 @@ from typing import Any, List, Optional
 from contextlib import contextmanager
 import pyodbc
 import logging
+import threading
 
 from ..config.settings import DatabaseConfig
 
@@ -130,21 +131,23 @@ class SqlServerConnection(IDatabaseConnection):
     def __init__(self, config: DatabaseConfig):
         self._config = config
         self._connection: Optional[pyodbc.Connection] = None
+        self._lock = threading.Lock()
 
     def connect(self) -> None:
         """Establece la conexión a SQL Server"""
-        try:
-            if self._connection is not None:
-                logger.debug("Conexión ya existente, reutilizando")
-                return
+        with self._lock:
+            try:
+                if self._connection is not None:
+                    logger.debug("Conexión ya existente, reutilizando")
+                    return
 
-            logger.info("Estableciendo conexión a SQL Server...")
-            self._connection = pyodbc.connect(self._config.connection_string)
-            logger.info("Conexión a SQL Server establecida correctamente")
+                logger.info("Estableciendo conexión a SQL Server...")
+                self._connection = pyodbc.connect(self._config.connection_string)
+                logger.info("Conexión a SQL Server establecida correctamente")
 
-        except pyodbc.Error as e:
-            logger.error(f"Error al conectar a SQL Server: {e}", exc_info=True)
-            raise ConnectionError(f"No se pudo conectar a la base de datos: {e}")
+            except pyodbc.Error as e:
+                logger.error(f"Error al conectar a SQL Server: {e}", exc_info=True)
+                raise ConnectionError(f"No se pudo conectar a la base de datos: {e}")
 
     def close(self) -> None:
         """Cierra la conexión en forma idempotente"""
@@ -185,46 +188,48 @@ class SqlServerConnection(IDatabaseConnection):
         if not query_clean.startswith('SELECT') and not query_clean.startswith('WITH'):
             raise ValueError("execute_query solo acepta queries SELECT o WITH (CTEs)")
         
-        cursor = None
-        try:
-            cursor = self._get_cursor()
-            if params:
-                cursor.execute(query, params)
-            else:
-                cursor.execute(query)
-            rows = cursor.fetchall()
-            logger.debug(f"Query ejecutada, {len(rows)} filas retornadas")
-            return rows
-        except pyodbc.Error as e:
-            logger.error(f"Error ejecutando query: {e}\nQuery: {query}", exc_info=True)
-            raise
-        finally:
-            if cursor:
-                try:
-                    cursor.close()
-                except Exception:
-                    pass
+        with self._lock:
+            cursor = None
+            try:
+                cursor = self._get_cursor()
+                if params:
+                    cursor.execute(query, params)
+                else:
+                    cursor.execute(query)
+                rows = cursor.fetchall()
+                logger.debug(f"Query ejecutada, {len(rows)} filas retornadas")
+                return rows
+            except pyodbc.Error as e:
+                logger.error(f"Error ejecutando query: {e}\nQuery: {query}", exc_info=True)
+                raise
+            finally:
+                if cursor:
+                    try:
+                        cursor.close()
+                    except Exception:
+                        pass
 
     def execute_scalar(self, query: str, params: Optional[List[Any]] = None) -> Optional[Any]:
         """Ejecuta una query y retorna un único valor escalar"""
-        cursor = None
-        try:
-            cursor = self._get_cursor()
-            if params:
-                cursor.execute(query, params)
-            else:
-                cursor.execute(query)
-            row = cursor.fetchone()
-            return row[0] if row else None
-        except pyodbc.Error as e:
-            logger.error(f"Error ejecutando scalar query: {e}\nQuery: {query}", exc_info=True)
-            raise
-        finally:
-            if cursor:
-                try:
-                    cursor.close()
-                except Exception:
-                    pass
+        with self._lock:
+            cursor = None
+            try:
+                cursor = self._get_cursor()
+                if params:
+                    cursor.execute(query, params)
+                else:
+                    cursor.execute(query)
+                row = cursor.fetchone()
+                return row[0] if row else None
+            except pyodbc.Error as e:
+                logger.error(f"Error ejecutando scalar query: {e}\nQuery: {query}", exc_info=True)
+                raise
+            finally:
+                if cursor:
+                    try:
+                        cursor.close()
+                    except Exception:
+                        pass
 
     def execute_non_query(self, query: str, params: Optional[List[Any]] = None) -> int:
         """
@@ -232,31 +237,32 @@ class SqlServerConnection(IDatabaseConnection):
         
         Hace commit automáticamente.
         """
-        cursor = None
-        try:
-            cursor = self._get_cursor()
-            if params:
-                cursor.execute(query, params)
-            else:
-                cursor.execute(query)
-            self._connection.commit()
-            rows_affected = cursor.rowcount
-            logger.debug(f"Non-query ejecutada, {rows_affected} filas afectadas")
-            return rows_affected
-        except pyodbc.Error as e:
-            logger.error(f"Error ejecutando non-query: {e}\nQuery: {query}", exc_info=True)
-            if self._connection:
-                try:
-                    self._connection.rollback()
-                except Exception:
-                    pass
-            raise
-        finally:
-            if cursor:
-                try:
-                    cursor.close()
-                except Exception:
-                    pass
+        with self._lock:
+            cursor = None
+            try:
+                cursor = self._get_cursor()
+                if params:
+                    cursor.execute(query, params)
+                else:
+                    cursor.execute(query)
+                self._connection.commit()
+                rows_affected = cursor.rowcount
+                logger.debug(f"Non-query ejecutada, {rows_affected} filas afectadas")
+                return rows_affected
+            except pyodbc.Error as e:
+                logger.error(f"Error ejecutando non-query: {e}\nQuery: {query}", exc_info=True)
+                if self._connection:
+                    try:
+                        self._connection.rollback()
+                    except Exception:
+                        pass
+                raise
+            finally:
+                if cursor:
+                    try:
+                        cursor.close()
+                    except Exception:
+                        pass
 
     def begin_transaction(self) -> None:
         """

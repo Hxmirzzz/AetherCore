@@ -42,11 +42,11 @@ class TransaccionDTO:
     
     # Identificación de ruta y planilla
     cod_ruta: Optional[str] = None
-    numero_planilla: int = 0  # NOT NULL en BD, default 0
+    numero_planilla: int = 0
     
     # Divisa y tipo
-    divisa: str = 'COP'  # Default COP
-    tipo_transaccion: str = 'Checkin'  # Default Checkin
+    divisa: str = 'COP'
+    tipo_transaccion: str = 'RC'
     
     # Mesa de conteo
     numero_mesa_conteo: Optional[int] = None
@@ -101,7 +101,7 @@ class TransaccionDTO:
             raise ValueError(f"divisa debe ser 3 letras, recibido: '{self.divisa}'")
         
         # Validar tipo_transaccion
-        tipos_validos = ('Checkin', 'Checkout')
+        tipos_validos = ('RC', 'PV')
         if self.tipo_transaccion not in tipos_validos:
             raise ValueError(
                 f"tipo_transaccion inválido: '{self.tipo_transaccion}'. "

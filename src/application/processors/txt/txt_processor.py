@@ -112,7 +112,7 @@ class TXTProcessor:
 
             out_xlsx = self._paths.output_txt_dir() / f"{ruta_txt.stem}.xlsx"
 
-            if es_por_tipos:
+            if es_por_tipos:    
                 ciud_repo = CiudadRepository(conn)
                 punto_repo = PuntoRepository(conn)
                 

@@ -1,12 +1,18 @@
 from typing import Dict, List
 from src.infrastructure.database.connection_manager import ConnectionManager
+from src.infrastructure.config.mapeos import ClienteMapeos
 
 class PuntoRepository:
     def __init__(self, connection: ConnectionManager):
         self._conn = connection
 
     def obtener_todo_compuesto(self) -> List[dict]:
-        query = """
+        clientes_permitidos = ClienteMapeos.get_clientes_permitidos()
+        if not clientes_permitidos:
+            return []
+        placeholders = ','.join(['?'] * len(clientes_permitidos))
+
+        query = f"""
             SELECT  p.cod_punto,
                     p.nom_punto,
                     p.cod_cliente,
@@ -16,11 +22,12 @@ class PuntoRepository:
                     ci.cod_ciudad,
                     ci.ciudad
             FROM adm_puntos p
-            LEFT JOIN adm_clientes   c  ON c.cod_cliente = p.cod_cliente
+            LEFT JOIN adm_clientes  c   ON c.cod_cliente = p.cod_cliente
             LEFT JOIN adm_sucursales s  ON s.cod_suc     = p.cod_suc
-            LEFT JOIN adm_ciudades   ci ON ci.cod_suc     = s.cod_suc
+            LEFT JOIN adm_ciudades  ci ON ci.cod_suc     = s.cod_suc
+            WHERE p.cod_cliente IN ({placeholders})
         """
-        rows = self._conn.execute_query(query, [])
+        rows = self._conn.execute_query(query, clientes_permitidos)
         return [
             {
                 "cod_punto":   (str(r[0]).strip() if r[0] is not None else ""),
