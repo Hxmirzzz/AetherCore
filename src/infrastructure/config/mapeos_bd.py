@@ -167,7 +167,41 @@ class IndicadorTipo(Enum):
 
 class MapeoIndicadorTipo:
     """Lógica para determinar el indicador de tipo según el contexto"""
-    
+    @staticmethod
+    def es_fondo(cod_punto: str) -> bool:
+        """
+        Verifica si un código de punto corresponde a un Fondo (un punto central/sucursal).
+        
+        NOTA: Se asume que los códigos de Fondo tienen un formato específico (ej. un prefijo).
+              Si se usa la lógica del 'cod_fondo' que viene de la BD, solo hay que verificar
+              si ese valor existe y NO es un PK de punto regular. 
+              
+              Si 'cod_fondo' de la BD se llena solo cuando el origen es el fondo,
+              podemos asumir que si se usa 'cod_fondo' en cod_punto_pk_origen, es un fondo.
+              
+        Dado que usted ya tiene la lógica de: cod_punto_pk_origen = punto_info['cod_fondo'] or cod_punto_pk_destino
+        Si punto_info['cod_fondo'] tiene un valor (ej. '9999'), entonces es Fondo.
+        Aquí asumimos que los códigos de fondo son siempre diferentes a las PKs de punto.
+        """
+        # Se puede agregar lógica específica si los códigos de fondo tienen un patrón (ej: '9999', 'F01', 'F-CLIENTE')
+        # Si la columna 'cod_fondo' de la BD ya devuelve un valor que representa el fondo,
+        # la comprobación debe ser si el valor es *diferente* a la PK del punto de destino.
+        
+        # Implementación simple asumiendo que un "Fondo" tiene un código distinto de una PK de punto normal (ej: un string largo o código especial):
+        # NOTA: La lógica más robusta debe estar en el mapeo de la BD o en la clase que llama.
+        
+        # Una forma común es que el "cod_fondo" no contenga el prefijo de cliente (ej: '47-')
+        if '-' not in cod_punto:
+            return True 
+        
+        # Si no puede definir la lógica de fondo, puede devolver False y usar el parámetro es_fondo
+        # que ya tenía en determinar_tipo_origen:
+        # return False # <--- Opción si se depende del parámetro explícito en determinar_tipo_origen
+        
+        # Si el valor de cod_punto_pk_origen contiene el valor del fondo (no la PK del punto)
+        # se asume que es fondo. Ejemplo de código de fondo: "F01" vs código de punto: "47-1010".
+        return len(cod_punto) < 6 # Ejemplo simplificado: Los códigos de fondo son cortos y no llevan prefijo.
+        
     @staticmethod
     def determinar_tipo_origen(cod_punto_origen: str, es_fondo: bool = False) -> str:
         """

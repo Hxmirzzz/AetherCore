@@ -36,4 +36,4 @@ class PathManager:
     def gestionados_txt_dir(self) -> Path:
         return Config.paths.carpeta_gestionados_txt
     def errores_txt_dir(self) -> Path:
-        return (Config.paths.logs_dir / "TXT_ERRORES")
+        return (Config.paths.carpeta_errores_txt)

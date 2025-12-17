@@ -67,6 +67,7 @@ class DataMapperService:
         6. Construir DTOs
         """
         logger.info(f"Mapeando registro TXT TIPO 2: {registro_tipo2.get('CODIGO')}")
+        # logger.info(f"Data: {registro_tipo2}")
         
         # ────────────────────────────────────────────────────────
         # 1. RESOLVER CÓDIGO DE CLIENTE
@@ -101,11 +102,11 @@ class DataMapperService:
         # ────────────────────────────────────────────────────────
         # 3. OBTENER INFORMACIÓN DEL PUNTO DESTINO
         # ────────────────────────────────────────────────────────
-        codigo_punto_destino = str(registro_tipo2.get('CODIGO PUNTO', '')).strip()
-        if not codigo_punto_destino:
+        codigo_punto_cliente_destino = str(registro_tipo2.get('CODIGO PUNTO', '')).strip() # Nombre más claro
+        if not codigo_punto_cliente_destino:
             raise ValueError("CODIGO PUNTO no puede estar vacío")
         
-        punto_info = self._obtener_info_completa_punto(codigo_punto_destino, cod_cliente)
+        punto_info = self._obtener_info_completa_punto(codigo_punto_cliente_destino, cod_cliente)        
         if not punto_info:
             raise ValueError(
                 f"Punto no encontrado: {codigo_punto_destino} (Cliente: {cod_cliente}). "
@@ -113,9 +114,15 @@ class DataMapperService:
             )
         
         cod_sucursal = punto_info['cod_sucursal']
-        cod_punto_origen = punto_info['cod_fondo'] or codigo_punto_destino  # Fallback
-        
-        logger.debug(f"Punto resuelto: {codigo_punto_destino} → Sucursal {cod_sucursal}, Fondo {cod_punto_origen}")
+        cod_punto_pk_destino = punto_info['cod_punto_pk']
+        cod_fondo_origen = punto_info['cod_fondo']
+        cod_punto_pk_origen = punto_info['cod_fondo'] or cod_punto_pk_destino
+
+        logger.debug(
+            f"Punto resuelto: Cliente Punto {codigo_punto_cliente_destino} "
+            f"→ Sucursal {cod_sucursal}, PK Destino {cod_punto_pk_destino}, "
+            f"PK Origen {cod_punto_pk_origen}"
+        )
         
         # ────────────────────────────────────────────────────────
         # 4. PARSEAR FECHA Y HORA
@@ -145,14 +152,13 @@ class DataMapperService:
             raise ValueError(f"Error parseando FECHA SERVICIO '{fecha_programacion_str}': {e}")
         
         hora_programacion = time(0, 0, 0)
-
-        logger.debug(f"Fecha Solicitud (Tipo 1): {fecha_solicitud} {hora_solicitud}")
-        logger.debug(f"Fecha Programación (Tipo 2): {fecha_programacion} {hora_programacion}")
         
         # ────────────────────────────────────────────────────────
         # 5. CALCULAR VALORES (BILLETES Y MONEDAS)
         # ────────────────────────────────────────────────────────
         valor_billete, valor_moneda = self._calcular_valores_desde_registro_txt(registro_tipo2)
+
+        logger.info(f"Billete: {valor_billete} Moneda: {valor_moneda}")
         
         # Si es recolección, valores en 0 (se desconocen hasta conteo)
         if not es_provision:
@@ -178,13 +184,12 @@ class DataMapperService:
         # ────────────────────────────────────────────────────────
         # 7. DETERMINAR INDICADORES DE TIPO
         # ────────────────────────────────────────────────────────
-        es_fondo_origen = es_provision
+        es_fondo_origen = cod_fondo_origen is not None
         indicador_tipo_origen = MapeoIndicadorTipo.determinar_tipo_origen(
-            cod_punto_origen, 
+            cod_punto_pk_origen,
             es_fondo=es_fondo_origen
         )
-        indicador_tipo_destino = MapeoIndicadorTipo.determinar_tipo_destino(codigo_punto_destino)
-        
+        indicador_tipo_destino = MapeoIndicadorTipo.determinar_tipo_destino(cod_punto_pk_destino)
         # ────────────────────────────────────────────────────────
         # 8. CONSTRUIR SERVICIO DTO
         # ────────────────────────────────────────────────────────
@@ -203,9 +208,11 @@ class DataMapperService:
             fecha_programacion=fecha_programacion,
             hora_programacion=hora_programacion,
             cod_estado=MapeoEstadoInicial.obtener_estado_inicial_servicio(),
-            cod_punto_origen=cod_punto_origen,
+            cod_cliente_origen=cod_cliente,
+            cod_punto_origen=cod_punto_pk_origen,
             indicador_tipo_origen=indicador_tipo_origen,
-            cod_punto_destino=codigo_punto_destino,
+            cod_cliente_destino=cod_cliente,
+            cod_punto_destino=cod_punto_pk_destino,
             indicador_tipo_destino=indicador_tipo_destino,
             fallido=False,
             valor_billete=valor_billete,
@@ -222,7 +229,7 @@ class DataMapperService:
             cod_sucursal=cod_sucursal,
             fecha_registro=datetime.now(),
             usuario_registro_id='e5926e18-33b1-468c-a979-e4e839a86f30',
-            tipo_transaccion=TipoTransaccion.obtener_tipo_default(),
+            tipo_transaccion=TipoTransaccion.PROVISION_OFICINA,
             divisa=divisa_limpia,
             valor_billetes_declarado=valor_billete,
             valor_monedas_declarado=valor_moneda,
@@ -544,7 +551,8 @@ class DataMapperService:
             SELECT 
                 p.cod_suc as cod_sucursal,
                 p.cod_fondo,
-                p.nom_punto
+                p.nom_punto,
+                p.cod_punto as cod_punto_pk
             FROM adm_puntos p
             WHERE p.cod_p_cliente = ? AND p.cod_cliente = ?
         """
@@ -557,7 +565,8 @@ class DataMapperService:
             return {
                 'cod_sucursal': int(row[0]) if row[0] else None,
                 'cod_fondo': str(row[1]).strip() if row[1] else None,
-                'nombre_punto': str(row[2]).strip() if row[2] else ''
+                'nombre_punto': str(row[2]).strip() if row[2] else '',
+                'cod_punto_pk': str(row[3]).strip() if row[3] else codigo_punto
             }
         except Exception as e:
             logger.error(f"Error obteniendo info del punto '{codigo_punto}': {e}", exc_info=True)
@@ -573,21 +582,38 @@ class DataMapperService:
         Returns:
             Tupla (valor_billete, valor_moneda)
         """
+        total_billete = Decimal('0')
+        total_moneda = Decimal('0')
         try:
-            denominacion = Decimal(str(registro.get('DENOMINACION', 0)))
-            cantidad = Decimal(str(registro.get('CANTIDAD', 0)))
-            
-            valor_total = denominacion * cantidad
-            
-            # Si denominación >= 1000, es billete
-            tipo = ConversionHelper.determinar_tipo_denominacion(int(denominacion))
-            
-            if tipo == 'BILLETE':
-                return (valor_total, Decimal('0'))
-            else:
-                return (Decimal('0'), valor_total)
+            for i in range(1, 9):
+                key_denom = next((k for k in registro if f'GAV {i}' in k and 'DENOMINACION' in k), None)
+                key_cant = next((k for k in registro if f'GAV {i}' in k and 'CANTIDAD' in k), None)
+
+                if key_denom and key_cant:
+                    raw_denom = str(registro.get(key_denom, '0'))
+                    raw_cant = str(registro.get(key_cant, '0'))
+
+                    # Limpieza de strings: quitar '$', '.' (miles) y espacios
+                    clean_denom = raw_denom.replace('$', '').replace('.', '').strip()
+                    clean_cant = raw_cant.replace('.', '').replace(',', '').strip()
+
+                    if clean_denom and clean_cant:
+                        denom_val = Decimal(clean_denom)
+                        cant_val = Decimal(clean_cant)
+                        valor_gaveta = denom_val * cant_val
+
+                        # Clasificar mediante el helper
+                        tipo = ConversionHelper.determinar_tipo_denominacion(int(denom_val))
+                        
+                        if tipo == 'BILLETE':
+                            total_billete += valor_gaveta
+                        else:
+                            total_moneda += valor_gaveta
+
+            return (total_billete, total_moneda)
+
         except Exception as e:
-            logger.error(f"Error calculando valores TXT: {e}", exc_info=True)
+            logger.error(f"Error calculando valores multigavera TXT: {e}", exc_info=True)
             return (Decimal('0'), Decimal('0'))
 
     def _calcular_valores_desde_denominaciones_xml(

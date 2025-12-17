@@ -12,6 +12,7 @@ from src.application.processors.xml.xml_mappers import extract_cc_from_filename,
 from .txt_mappers import parse_tipo_records
 from src.infrastructure.config.mapeos import ClienteMapeos
 from src.application.services.insertion_service import InsertionService
+from src.infrastructure.config.settings import get_config
 
 from src.infrastructure.repositories.ciudad_repository import CiudadRepository
 from src.infrastructure.repositories.sucursal_repository import SucursalRepository
@@ -19,6 +20,7 @@ from src.infrastructure.repositories.cliente_repository import ClienteRepository
 from src.infrastructure.repositories.punto_repository import PuntoRepository
 from src.domain.value_objects.codigo_punto import CodigoPunto
 
+Config = get_config()
 logger = logging.getLogger(__name__)
 
 class TXTResponseGenerator:
@@ -262,8 +264,8 @@ class TXTProcessor:
             
             ids_dummy = [ruta_txt.name]
             TXTResponseGenerator.generar_respuesta(ids_dummy, ruta_txt.name, self._paths.respuestas_txt_dir(), estado=estado_respuesta)
-            destino = self._paths.errores_txt_dir() / ruta_txt.name
-            os.makedirs(self._paths.errores_txt_dir(), exist_ok=True)
+            destino = Config.paths.carpeta_errores_txt / ruta_txt.name
+            os.makedirs(Config.paths.carpeta_errores_txt, exist_ok=True)
             os.rename(ruta_txt, destino)
         except Exception:
             logger.exception("Error manejando TXT fallido")

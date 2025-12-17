@@ -76,13 +76,16 @@ class PathConfig(BaseSettings):
     carpeta_entrada_txt: Path = Field(..., alias='CARPETA_ENTRADA_TXT')
     carpeta_salida_txt: Path = Field(..., alias='CARPETA_SALIDA_TXT')
     carpeta_respuesta_txt: Path = Field(..., alias='CARPETA_RESPUESTA_TXT')
-    carpeta_gestionados_txt: Path = Field(..., alias='CARPETA_GESTIONADOS_TXT')
+    carpeta_errores_txt: Path = Field(..., alias='CARPETA_ERRORES_TXT')
 
     # XML
     carpeta_entrada_xml: Path = Field(..., alias='CARPETA_ENTRADA_XML')
     carpeta_salida_xml: Path = Field(..., alias='CARPETA_SALIDA_XML')
     carpeta_gestionados_xml: Path = Field(..., alias='CARPETA_GESTIONADOS_XML')
     carpeta_errores_xml: Path = Field(..., alias='CARPETA_ERRORES_XML')
+
+    # Gestionados
+    carpeta_gestionados_txt: Path = Field(..., alias='CARPETA_GESTIONADOS_TXT')
 
     # Directorios derivados
     base_dir: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[3])
@@ -104,6 +107,7 @@ class PathConfig(BaseSettings):
         'carpeta_salida_txt', 'carpeta_salida_xml',
         'carpeta_respuesta_txt', 'carpeta_gestionados_txt',
         'carpeta_gestionados_xml', 'carpeta_errores_xml',
+        'carpeta_errores_txt',
         mode='before'
     )
     @classmethod
