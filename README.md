@@ -274,9 +274,10 @@ pip install -r requirements.txt
 2. Editar el archivo `.env` con sus configuraciones.
 
 3. Verificar conectividad a ambas bases de datos:
-  ```bash
-  python test/test_connections.py
-  ```
+   ```bash
+   python test/test_connections.py
+   ```
+
 ### 5. Instalación como Servicio de Windows (Opcional)
 
 Para ejecutar AetherCore como un servicio de Windows que inicia automáticamente con el sistema:
@@ -293,9 +294,9 @@ Para ejecutar AetherCore como un servicio de Windows que inicia automáticamente
 #### Instalación Automática
 
 1. **Ejecutar como Administrador:**
-```
-   Click derecho en install_windows_service.bat → "Ejecutar como administrador"
-```
+  ```
+    Click derecho en install_windows_service.bat → "Ejecutar como administrador"
+  ```
 
 2. **El script realizará automáticamente:**
    - ✅ Verificación de privilegios de administrador
