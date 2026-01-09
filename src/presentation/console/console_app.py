@@ -1,25 +1,31 @@
 """
-Console Runner para AetherCore (XML).
+Console Runner para AetherCore (XML/TXT) - MODO MANUAL CON PRE-VALIDACIÓN.
 
-- Lee configuración desde get_config() (tu .env/.yaml ya gestionado por settings.py).
-- Resuelve dependencias con ApplicationContainer.
-- Ejecuta en modo:
-    --once  : procesa todos los XML pendientes en la carpeta de entrada.
-    --watch : observa la carpeta y procesa los XML nuevos.
+Cambios vs versión anterior:
+- Ya NO procesa archivos automáticamente
+- Solo pre-valida y notifica a la API
+- La API decide cuándo procesarlos (después de aprobación del usuario)
 
-NOTA: No modifica repos ya existentes. Para construir `puntos_info`:
-        1) Intenta usar un método del PuntoRepository si existe (p.ej. `obtener_diccionario_info()`).
-        2) Si no existe, hace una consulta DIRECTA vía conexión (sin alterar tus repos) para
-            armar un dict mínimo con las claves que requiere xml_mappers.py:
-            - nombre_punto
-            - nombre_cliente
-            - ciudad
+Flujo:
+1. Escanea carpetas cada 30s
+2. Pre-valida archivos nuevos (rápido, sin procesar)
+3. Notifica a la API REST sobre archivos detectados
+4. La API registra el archivo como "PENDIENTE"
+5. Usuario aprueba/rechaza desde el Dashboard
+6. La API llama a orchestrator.process_approved_file()
+
+Uso:
+    python -m src.presentation.console.console_app --watch
+    python -m src.presentation.console.console_app --watch --only xml
 """
 from __future__ import annotations
 import argparse
 import logging
+import time
+import requests
 from pathlib import Path
 from typing import Dict, Any
+from datetime import datetime
 
 from src.infrastructure.di.container import ApplicationContainer
 from src.infrastructure.config.settings import get_config
@@ -31,21 +37,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger("console_app")
 
+API_URL = "http://localhost:8000"
+
 def _convertir_codigo_punto(codigo_bd: str) -> str:
     """
     Convierte un código de punto del formato de BD al formato de cliente.
     
-    Ejemplos de conversión:
-        "52-SUC-0075" -> "45-0075"  (donde 52 es CC Code de cliente 45)
-        "52-0075"     -> "45-0075"
-        "01-SUC-1234" -> "46-1234"  (donde 01 es CC Code de cliente 46)
-        "45-0075"     -> "45-0075"  (ya está en formato correcto)
-    
-    Args:
-        codigo_bd: Código como viene de la base de datos
-        
-    Returns:
-        Código en formato "CLIENTE-NUMERO"
+    Ejemplos:
+        "52-SUC-0075" -> "45-0075"
+        "01-SUC-1234" -> "46-1234"
     """
     if not codigo_bd or not isinstance(codigo_bd, str):
         return ""
@@ -75,16 +75,7 @@ def _convertir_codigo_punto(codigo_bd: str) -> str:
     return codigo_normalizado
 
 def _build_puntos_info(container: ApplicationContainer) -> Dict[str, Dict[str, Any]]:
-    """
-    Construye diccionario de puntos con códigos en formato de cliente.
-    
-    El diccionario resultante tendrá:
-    - Claves: códigos de punto en formato "CLIENTE-NUMERO" (ej: "45-0075")
-    - Valores: dict con 'nombre_punto', 'nombre_cliente', 'ciudad'
-    
-    IMPORTANTE: Convierte automáticamente códigos de BD (con CC Code)
-                al formato de cliente que espera el procesador XML.
-    """
+    """Construye diccionario de puntos con códigos en formato de cliente."""
     try:
         puntos_repo = container.punto_repository()
 
@@ -147,35 +138,208 @@ def _build_puntos_info(container: ApplicationContainer) -> Dict[str, Dict[str, A
         logger.exception("Error construyendo puntos_info")
         return {}
 
+def _notificar_api(archivo_info: dict) -> bool:
+    """
+    Notifica a la API REST sobre un archivo nuevo.
+    
+    Args:
+        archivo_info: Diccionario con info del archivo pre-validado
+        
+    Returns:
+        True si la notificación fue exitosa
+    """
+    try:
+        response = requests.post(
+            f"{API_URL}/api/archivos/nuevo",
+            json=archivo_info,
+            timeout=30
+        )
+
+        if response.status_code == 200:
+            logger.info("Archivo notificado exitosamente: %s", archivo_info["nombre_archivo"])
+            return True
+        else:
+            logger.error("✗ Error notificando archivo (HTTP %d): %s", 
+                        response.status_code, archivo_info["nombre_archivo"])
+            return False
+
+    except requests.exceptions.ConnectionError:
+        loggger.error("No se pudo conectar con la API endpoint %s", API_URL)
+        return False
+    except Exception as e:
+        logger.exception("Error notificando archivo a la API: %s", e)
+        return False
+
+def _escanear_y_prevalidar(
+    container: ApplicationContainer,
+    archivos_notificados: Set[str],
+    tipo: str,
+    carpeta: Path
+) -> None:
+    """
+    Escanea una carpeta y pre-valida archivos nuevos.
+    
+    Args:
+        container: Contenedor de dependencias
+        archivos_notificados: Set de archivos ya notificados (para evitar duplicados)
+        tipo: "XML" o "TXT"
+        carpeta: Path a la carpeta de entrada
+    """
+    try:
+        orchestrator = container.xml_orchestrator()
+        conn = container.db_connection_read()
+        
+        patron = "*.xml" if tipo == "XML" else "*.txt"
+        archivos = list(carpeta.glob(patron))
+        
+        for archivo in archivos:
+            archivo_key = f"{tipo}:{archivo.name}"
+
+            if archivo_key in archivos_notificados:
+                continue
+            
+            logger.info("Nuevo archivo detectado: %s", archivo.name)
+
+            resultado = orchestrator._prevalidate_file(archivo, tipo, conn)
+
+            archivo_info = {
+                "archivo_id": resultado["archivo_id"],
+                "nombre_archivo": archivo.name,
+                "tipo": tipo,
+                "num_registros": resultado["num_registros"],
+                "errores": resultado["errores"],
+                "preview": resultado["preview"],
+                "ruta_interna": str(archivo.absolute()),
+                "fecha_deteccion": datetime.now().isoformat()
+            }
+
+            if _notificar_api(archivo_info):
+                archivos_notificados.add(archivo_key)
+                logger.info("Archivo en espera de aprobación: %s", archivo.name)
+            else:
+                logger.info("✗ Error notificando archivo: %s", archivo.name)
+        
+    except Exception as e:
+        logger.exception("Error escaneando y pre-validando archivos: %s", e)
+
+def run_watch_manual(
+    container: ApplicationContainer,
+    puntos_info: Dict[str, Dict[str, Any]],
+    only: str = None
+):
+    """
+    Escanea carpetas periódicamente y pre-valida archivos nuevos.
+    
+    NUEVO COMPORTAMIENTO:
+    - Ya NO procesa automáticamente
+    - Solo notifica a la API
+    - La API decide cuándo procesar (después de aprobación)
+    
+    Args:
+        container: Contenedor de dependencias
+        puntos_info: Diccionario de puntos (no se usa en pre-validación)
+        only: Filtro opcional ("xml" o "txt")
+    """
+    config = get_config()
+    archivos_notificados: Set[str] = set()
+    
+    logger.info("=" * 70)
+    logger.info("🔄 MODO MANUAL CON PRE-VALIDACIÓN ACTIVADO")
+    logger.info("=" * 70)
+    logger.info("📡 API REST: %s", API_URL)
+    logger.info("⏱️  Intervalo de escaneo: 30 segundos")
+    
+    if only:
+        logger.info("🔍 Procesando solo: %s", only.upper())
+    else:
+        logger.info("🔍 Procesando: XML y TXT")
+    
+    logger.info("=" * 70)
+    logger.info("")
+    logger.info("💡 Los archivos detectados se PRE-VALIDAN y quedan en espera")
+    logger.info("💡 El usuario debe APROBAR desde el Dashboard para procesarlos")
+    logger.info("💡 Presiona Ctrl+C para detener el monitoreo")
+    logger.info("")
+    
+    try:
+        while True:
+            logger.debug("🔍 Escaneando carpetas...")
+            
+            # Escanear XML
+            if only is None or only == "xml":
+                carpeta_xml = config.paths.carpeta_entrada_xml
+                _escanear_y_prevalidar(
+                    container, 
+                    archivos_notificados, 
+                    "XML", 
+                    carpeta_xml
+                )
+            
+            # Escanear TXT
+            if only is None or only == "txt":
+                carpeta_txt = config.paths.carpeta_entrada_txt
+                _escanear_y_prevalidar(
+                    container, 
+                    archivos_notificados, 
+                    "TXT", 
+                    carpeta_txt
+                )
+            
+            # Esperar 30 segundos antes del próximo escaneo
+            time.sleep(30)
+            
+    except KeyboardInterrupt:
+        logger.info("")
+        logger.info("=" * 70)
+        logger.info("⏹️  Monitoreo detenido por el usuario")
+        logger.info("=" * 70)
+
 def main():
     """
-    Procesar todo una vez:
-    python -m src.presentation.console.console_app --once
-
-    Watcher de todo:
+    NUEVO USO - Solo modo --watch:
+    
     python -m src.presentation.console.console_app --watch
-
-    Solo XML:
-    --once --only xml ó --watch --only xml
-
-    Solo TXT:
-    --once --only txt ó --watch --only txt
+    python -m src.presentation.console.console_app --watch --only xml
+    python -m src.presentation.console.console_app --watch --only txt
+    
+    NOTA: El modo --once fue REMOVIDO porque ya no tiene sentido
+          en un flujo manual con aprobación de usuario.
     """
-    parser = argparse.ArgumentParser(description="AetherCore Runner (auto XML/TXT)")
-    mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--once", action="store_true", help="Procesa TODO una sola vez (XML, TXT, etc.)")
-    mode.add_argument("--watch", action="store_true", help="Observa TODAS las carpetas y procesa nuevos archivos")
-
-    # Filtro opcional por tipo
-    parser.add_argument("--only", choices=["xml", "txt"], help="Procesa solo un tipo (xml|txt)")
+    parser = argparse.ArgumentParser(
+        description="AetherCore Runner (pre-validación manual)"
+    )
+    
+    parser.add_argument(
+        "--watch", 
+        action="store_true",
+        required=True,
+        help="Observa carpetas y pre-valida nuevos archivos"
+    )
+    
+    parser.add_argument(
+        "--only", 
+        choices=["xml", "txt"], 
+        help="Procesa solo un tipo (xml|txt)"
+    )
 
     # Overrides opcionales
     parser.add_argument("--in-xml", type=str, help="Override carpeta entrada XML")
     parser.add_argument("--out-xml", type=str, help="Override carpeta salida XML")
     parser.add_argument("--in-txt", type=str, help="Override carpeta entrada TXT")
     parser.add_argument("--out-txt", type=str, help="Override carpeta salida TXT")
+    
+    # Override URL de la API
+    parser.add_argument(
+        "--api-url",
+        type=str,
+        default="http://localhost:8000",
+        help="URL de la API REST (default: http://localhost:8000)"
+    )
 
     args = parser.parse_args()
+
+    global API_URL
+    API_URL = args.api_url
 
     config = get_config()
     container = ApplicationContainer()
@@ -191,23 +355,9 @@ def main():
         config.paths.carpeta_salida_txt = Path(args.out_txt)
 
     puntos_info = _build_puntos_info(container)
-    
-    logger.info("=== DEBUG puntos_info ===")
-    logger.info("Total de puntos cargados: %d", len(puntos_info))
-    if puntos_info:
-        logger.info("Primeras 5 claves: %s", list(puntos_info.keys())[:5])
-    logger.info("========================")
-    
-    orchestrator = container.xml_orchestrator()
-    conexion_activa = container.db_connection_read()
 
     try:
-        if args.once:
-            logger.info("Ejecutando en modo --once (auto: todos los tipos)")
-            orchestrator.run_once_all(puntos_info, conexion_activa, only=args.only)
-        else:
-            logger.info("Ejecutando en modo --watch (auto: todos los tipos) — Ctrl+C para salir")
-            orchestrator.run_watch_all(puntos_info, conexion_activa, only=args.only)
+        run_watch_manual(container, puntos_info, only=args.only)
     finally:
         try:
             container.close_all_connections()

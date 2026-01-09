@@ -260,15 +260,9 @@ class XMLProcessor:
 
     def _estados_por_id(self, df_ordenes: pd.DataFrame, df_remesas: pd.DataFrame) -> Dict[str, str]:
         """
-        Determina el estado por ID combinando:
-        1. Validación de datos (puntos no encontrados, etc.)
-        2. Resultado de inserción en BD
-        
-        Returns:
-            Dict {ID: estado} donde estado es "1" (éxito) o "2" (error)
+        Determina el estado por ID.
         """
         textos_error = [
-            TextosConstantes.PUNTO_NO_ENCONTRADO_XML,
             TextosConstantes.CLIENTE_NO_ENCONTRADO,
             TextosConstantes.CIUDAD_NO_ENCONTRADA,
         ]

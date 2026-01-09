@@ -4,11 +4,12 @@ Configuración principal de la aplicación usando Pydantic v2.
 from pathlib import Path
 from typing import List, Any
 import os
+import warnings
+import secrets
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic.functional_validators import field_validator
-
 
 class DatabaseConfig(BaseSettings):
     """
@@ -156,6 +157,97 @@ class MonitoringConfig(BaseSettings):
         return self.tiempo_espera_segundos / 60.0
 
 
+class JWTConfig(BaseSettings):
+    """
+    Configuración de autenticación JWT para la API.
+    
+    Variables de entorno requeridas:
+    - JWT_SECRET_KEY: Clave secreta (mínimo 32 caracteres)
+    - JWT_ALGORITHM: Algoritmo de encriptación (default: HS256)
+    - JWT_EXPIRATION_HOURS: Horas de validez del token (default: 8)
+    
+    Para generar una clave segura:
+        python -c "import secrets; print(secrets.token_urlsafe(64))"
+    """
+    secret_key: str = Field(
+        default='CLAVE_INSEGURA_CAMBIAR_EN_PRODUCCION_' + secrets.token_urlsafe(32),
+        alias='JWT_SECRET_KEY',
+        description='Clave secreta para JWT'
+    )
+    algorithm: str = Field(
+        default='HS256',
+        alias='JWT_ALGORITHM',
+        description='Algoritmo para JWT'
+    )
+    expiration_hours: int = Field(
+        default=8,
+        alias='JWT_EXPIRATION_HOURS',
+        description='Expiración en horas para JWT'
+    )
+
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='ignore',
+    )
+
+    @field_validator('secret_key')
+    @classmethod
+    def validate_secret_key(cls, v: str) -> str:
+        """Valida que la clave secreta sea segura."""
+        if len(v) < 32:
+            raise ValueError(
+                'JWT_SECRET_KEY debe tener al menos 32 caracteres. '
+                'Genera una con: python -c "import secrets; print(secrets.token_urlsafe(64))"'
+            )
+        
+        if v.startswith('CLAVE_INSEGURA_CAMBIAR_EN_PRODUCCION_'):
+            warnings.warn(
+                "\n" + "="*70 + "\n"
+                "⚠️  ADVERTENCIA DE SEGURIDAD ⚠️\n"
+                "="*70 + "\n"
+                "Usando JWT_SECRET_KEY temporal. Para producción:\n\n"
+                "1. Genera una clave segura:\n"
+                "   python -c \"import secrets; print(secrets.token_urlsafe(64))\"\n\n"
+                "2. Agrégala a tu .env:\n"
+                "   JWT_SECRET_KEY=tu_clave_generada_aqui\n"
+                "="*70,
+                UserWarning,
+                stacklevel=2
+            )
+        
+        return v
+
+    @field_validator('expiration_hours')
+    @classmethod
+    def validate_expiration(cls, v: int) -> int:
+        """Valida que la expiración sea razonable."""
+        if v <= 0:
+            raise ValueError('JWT_EXPIRATION_HOURS debe ser mayor a 0')
+        if v > 720:  # 30 días
+            warnings.warn(
+                f"JWT_EXPIRATION_HOURS es muy alto ({v} horas = {v//24} días). "
+                "Se recomienda 8-24 horas para mayor seguridad.",
+                UserWarning
+            )
+        return v
+
+class ValidationConfig(BaseSettings):
+    """
+    Configuración para reglas de negocio.
+    """
+    valid_filename_keyword: str = Field(
+        default='',
+        alias='VALID_FILENAME_KEYWORD',
+        description='Palabra clave que deben tener los archivos (ej: EmpresaX, etc)'
+    )
+
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='ignore',
+    )
+
 class AppConfig(BaseSettings):
     """
     Configuración general de la aplicación (Pydantic v2).
@@ -166,6 +258,8 @@ class AppConfig(BaseSettings):
     database_test: TestDatabaseConfig = Field(default_factory=TestDatabaseConfig)
     paths: PathConfig = Field(default_factory=PathConfig)
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
+    jwt: JWTConfig = Field(default_factory=JWTConfig)
+    validation: ValidationConfig = Field(default_factory=ValidationConfig)
 
     clientes_permitidos: List[str] = Field(default=['45', '46', '47', '48'])
 
