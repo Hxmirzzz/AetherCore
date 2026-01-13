@@ -143,6 +143,15 @@ export default function Dashboard({ usuario, onLogout }) {
     }
   };
 
+  const handleDescargar = async (archivo) => {
+    try {
+      await archivoAPI.descargarPreview(archivo.id, archivo.nombre_archivo);
+    } catch (error) {
+      console.error('Error descargando archivo:', error);
+      alert('Error descargando archivo. Por favor, intenta de nuevo.');
+    }
+  };
+
 return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {tokenExpirando && (
@@ -190,6 +199,7 @@ return (
           loading={loading}
           onAprobar={handleAprobar}
           onRechazar={handleRechazar}
+          onDescargar={handleDescargar}
         />
       </main>
 

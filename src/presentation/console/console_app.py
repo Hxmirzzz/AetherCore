@@ -1,19 +1,6 @@
 """
 Console Runner para AetherCore (XML/TXT) - MODO MANUAL CON PRE-VALIDACIÓN.
 
-Cambios vs versión anterior:
-- Ya NO procesa archivos automáticamente
-- Solo pre-valida y notifica a la API
-- La API decide cuándo procesarlos (después de aprobación del usuario)
-
-Flujo:
-1. Escanea carpetas cada 30s
-2. Pre-valida archivos nuevos (rápido, sin procesar)
-3. Notifica a la API REST sobre archivos detectados
-4. La API registra el archivo como "PENDIENTE"
-5. Usuario aprueba/rechaza desde el Dashboard
-6. La API llama a orchestrator.process_approved_file()
-
 Uso:
     python -m src.presentation.console.console_app --watch
     python -m src.presentation.console.console_app --watch --only xml
@@ -163,8 +150,11 @@ def _notificar_api(archivo_info: dict) -> bool:
                         response.status_code, archivo_info["nombre_archivo"])
             return False
 
+    except requests.exceptions.Timeout:
+        logger.error("Timeout al notificar archivo a la API")
+        return False
     except requests.exceptions.ConnectionError:
-        loggger.error("No se pudo conectar con la API endpoint %s", API_URL)
+        logger.error("No se pudo conectar con la API endpoint %s", API_URL)
         return False
     except Exception as e:
         logger.exception("Error notificando archivo a la API: %s", e)
@@ -190,7 +180,7 @@ def _escanear_y_prevalidar(
         conn = container.db_connection_read()
         
         patron = "*.xml" if tipo == "XML" else "*.txt"
-        archivos = list(carpeta.glob(patron))
+        archivos = sorted(list(carpeta.glob(patron)))
         
         for archivo in archivos:
             archivo_key = f"{tipo}:{archivo.name}"
@@ -216,8 +206,10 @@ def _escanear_y_prevalidar(
             if _notificar_api(archivo_info):
                 archivos_notificados.add(archivo_key)
                 logger.info("Archivo en espera de aprobación: %s", archivo.name)
+                time.sleep(0.5)
             else:
                 logger.info("✗ Error notificando archivo: %s", archivo.name)
+                time.sleep(1)
         
     except Exception as e:
         logger.exception("Error escaneando y pre-validando archivos: %s", e)
@@ -229,11 +221,6 @@ def run_watch_manual(
 ):
     """
     Escanea carpetas periódicamente y pre-valida archivos nuevos.
-    
-    NUEVO COMPORTAMIENTO:
-    - Ya NO procesa automáticamente
-    - Solo notifica a la API
-    - La API decide cuándo procesar (después de aprobación)
     
     Args:
         container: Contenedor de dependencias
@@ -247,19 +234,10 @@ def run_watch_manual(
     logger.info("🔄 MODO MANUAL CON PRE-VALIDACIÓN ACTIVADO")
     logger.info("=" * 70)
     logger.info("📡 API REST: %s", API_URL)
-    logger.info("⏱️  Intervalo de escaneo: 30 segundos")
+    logger.info("⏱️  Intervalo de escaneo: 10 segundos")
     
     if only:
         logger.info("🔍 Procesando solo: %s", only.upper())
-    else:
-        logger.info("🔍 Procesando: XML y TXT")
-    
-    logger.info("=" * 70)
-    logger.info("")
-    logger.info("💡 Los archivos detectados se PRE-VALIDAN y quedan en espera")
-    logger.info("💡 El usuario debe APROBAR desde el Dashboard para procesarlos")
-    logger.info("💡 Presiona Ctrl+C para detener el monitoreo")
-    logger.info("")
     
     try:
         while True:
@@ -285,8 +263,7 @@ def run_watch_manual(
                     carpeta_txt
                 )
             
-            # Esperar 30 segundos antes del próximo escaneo
-            time.sleep(30)
+            time.sleep(10)
             
     except KeyboardInterrupt:
         logger.info("")
@@ -305,37 +282,16 @@ def main():
     NOTA: El modo --once fue REMOVIDO porque ya no tiene sentido
           en un flujo manual con aprobación de usuario.
     """
-    parser = argparse.ArgumentParser(
-        description="AetherCore Runner (pre-validación manual)"
-    )
-    
-    parser.add_argument(
-        "--watch", 
-        action="store_true",
-        required=True,
-        help="Observa carpetas y pre-valida nuevos archivos"
-    )
-    
-    parser.add_argument(
-        "--only", 
-        choices=["xml", "txt"], 
-        help="Procesa solo un tipo (xml|txt)"
-    )
+    parser = argparse.ArgumentParser(description="AetherCore Runner")
+    parser.add_argument("--watch", action="store_true", required=True)
+    parser.add_argument("--only", choices=["xml", "txt"])
+    parser.add_argument("--api-url", type=str, default="http://localhost:8000")
 
-    # Overrides opcionales
-    parser.add_argument("--in-xml", type=str, help="Override carpeta entrada XML")
-    parser.add_argument("--out-xml", type=str, help="Override carpeta salida XML")
-    parser.add_argument("--in-txt", type=str, help="Override carpeta entrada TXT")
-    parser.add_argument("--out-txt", type=str, help="Override carpeta salida TXT")
+    parser.add_argument("--in-xml", type=str)
+    parser.add_argument("--out-xml", type=str)
+    parser.add_argument("--in-txt", type=str)
+    parser.add_argument("--out-txt", type=str)
     
-    # Override URL de la API
-    parser.add_argument(
-        "--api-url",
-        type=str,
-        default="http://localhost:8000",
-        help="URL de la API REST (default: http://localhost:8000)"
-    )
-
     args = parser.parse_args()
 
     global API_URL

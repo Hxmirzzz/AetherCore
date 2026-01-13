@@ -9,9 +9,10 @@ Endpoints:
 - POST /api/archivos/nuevo - Registrar archivo nuevo (interno)
 - WS /ws/notificaciones - WebSocket para notificaciones en tiempo real
 """
-from fastapi import FastAPI, HTTPException, WebSocket, Depends, status, Query, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, Depends, status, Query, WebSocketDisconnect, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.responses import FileResponse
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
@@ -21,10 +22,21 @@ import logging
 import base64
 import hashlib
 import struct
+import tempfile
+import os
+import pandas as pd
 from pathlib import Path
 
+from src.infrastructure.repositories import ciudad_repository
 from src.infrastructure.config.settings import get_config
 from src.infrastructure.di.container import ApplicationContainer
+from src.infrastructure.repositories.punto_repository import PuntoRepository
+from src.infrastructure.repositories.ciudad_repository import CiudadRepository
+from src.domain.value_objects.codigo_punto import CodigoPunto
+from src.infrastructure.config.mapeos import TextosConstantes
+
+from src.application.processors.xml.xml_mappers import map_elements
+from src.application.processors.txt.txt_mappers import parse_tipo_records
 
 Config = get_config()
 logger = logging.getLogger(__name__)
@@ -437,6 +449,138 @@ async def aprobar_archivo(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al procesar el archivo"
+        )
+    finally:
+        if 'container' in locals():
+            container.close_all_connections()
+
+
+@app.get("/api/archivos/{archivo_id}/descargar")
+async def descargar_preview(
+    archivo_id: str,
+    background_tasks: BackgroundTasks,
+    token_data: dict = Depends(verificar_token)
+):
+    """
+    Genera y descarga una vista previa (Excel para XML, Original para TXT).
+    NO inserta en base de datos ni mueve archivos.
+    """
+    archivo = archivos_pendientes.get(archivo_id)
+    if not archivo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Archivo {archivo_id} no encontrado en pendientes"
+        )
+
+    ruta_fisica = Path(archivo.ruta_interna)
+
+    if not ruta_fisica.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Archivo {archivo_id} no encontrado en disco"
+        )
+
+    try:
+        container = ApplicationContainer()
+        fd, temp_path = tempfile.mkstemp(suffix=".xlsx")
+        os.close(fd)
+
+        exito_generacion = False
+
+        if archivo.tipo == "XML":
+            reader = container.xml_file_reader()
+            transformer = container.xml_data_transformer()
+            conn = container.db_connection_read()
+            punto_repo = PuntoRepository(conn)
+            dict_clientes, dict_sucursales = punto_repo.mapas_para_mappers()
+            puntos_info = {**dict_clientes, **dict_sucursales}
+
+            info_xml = reader.read(ruta_fisica)
+            if info_xml.get("empty"):
+                raise Exception("El archivo XML está vacío")
+
+            root = info_xml["root"]
+            ordenes_filas = map_elements(
+                reader.find_elements(root, "order"),
+                TextosConstantes.SERVICIO_RECOLECCION_XML,
+                puntos_info
+            )
+            remesas_filas = map_elements(
+                reader.find_elements(root, "remit"),
+                TextosConstantes.SERVICIO_RECOLECCION_XML,
+                puntos_info
+            )
+
+            dfs = transformer.to_dataframes(ordenes_filas, remesas_filas)
+            exito_generacion = transformer.write_excel_and_style(
+                Path(temp_path), dfs["ordenes"], dfs["remesas"]
+            )
+
+        elif archivo.tipo == "TXT":
+            reader = container.txt_file_reader()
+            transformer = container.txt_data_transformer()
+            info_txt = reader.read(ruta_fisica)
+            if info_txt.get("empty"):
+                raise Exception("El archivo TXT está vacío")
+
+            enc = info_txt.get("encoding") or "utf-8"
+            with open(ruta_fisica, "r", encoding=enc, errors="ignore") as f:
+                raw_lines = [ln.rstrip("\n") for ln in f.readlines()]
+
+            conn = container.db_connection_read()
+            ciud_repo = CiudadRepository(conn)
+            punto_repo = PuntoRepository(conn)
+
+            dict_ciudades = ciud_repo.obtener_todas()
+            dict_clientes_raw, dict_sucursales_raw = punto_repo.mapas_para_mappers()
+
+            dict_clientes = { CodigoPunto.from_raw(k).parte_numerica: v for k, v in dict_clientes_raw.items() }
+            dict_sucursales = { CodigoPunto.from_raw(k).parte_numerica: v for k, v in dict_sucursales_raw.items() }
+
+            dict_tipos_servicio = {}
+            dict_categorias = {}
+            dict_tipo_valor = {}
+
+            df1, df2, df3 = parse_tipo_records(
+                raw_lines,
+                dict_ciudades,
+                dict_tipos_servicio,
+                dict_categorias,
+                dict_tipo_valor,
+                dict_sucursales,
+                dict_clientes
+            )
+
+            exito_generacion = transformer.write_excel_consolidated(
+                Path(temp_path), df1, df2, df3, hoja_titulo="Consolidado"
+            )
+
+        else:
+            raise HTTPException(status_code=400, detail="Tipo de archivo no soportado")
+
+        if not exito_generacion:
+            raise Exception("Error al generar el archivo Excel")
+
+        background_tasks.add_task(os.remove, temp_path)
+        nombre_descarga = f"{ruta_fisica.stem}_PREVIEW.xlsx"
+
+        return FileResponse(
+            path=temp_path,
+            filename=nombre_descarga,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    except Exception as e:
+        logger.error(f"Error generando preview para {archivo_id}: {e}")
+        if 'temp_path' in locals() and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception as e:
+                pass
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al generar el archivo Excel: {str(e)}"
         )
     finally:
         if 'container' in locals():

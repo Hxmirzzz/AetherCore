@@ -122,7 +122,28 @@ export const archivoAPI = {
   obtenerHistorial: async (filtros = {}) => {
     const response = await api.get('/archivos/historial', { params: filtros });
     return response.data;
-  }
+  },
+
+  /**
+   * Descarga la vista previa del Excel.
+   * * @param {string} archivoId - ID del archivo
+   * @param {string} nombreOriginal - Nombre para guardar el archivo
+   */
+  descargarPreview: async (archivoId, nombreOriginal) => {
+    const response = await api.get(`/archivos/${archivoId}/descargar`, {
+      responseType: 'blob',
+    });
+    
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    const nombreDescarga = nombreOriginal.replace(/\.(xml|txt)$/i, '.xlsx');
+    link.setAttribute('download', nombreDescarga);
+    document.body.appendChild(link);
+    link.click();
+    link.parentNode.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  },
 };
 
 export const estadisticasAPI = {

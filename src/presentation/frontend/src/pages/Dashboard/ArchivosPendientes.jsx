@@ -1,6 +1,6 @@
-import { FileText, CheckCircle, XCircle, AlertCircle, Loader2, AlertTriangle, X } from 'lucide-react';
+import { FileText, CheckCircle, XCircle, AlertCircle, Loader2, AlertTriangle, FileSpreadsheet } from 'lucide-react';
 
-export default function ArchivosPendientes({ archivos, loading, onAprobar, onRechazar }) {
+export default function ArchivosPendientes({ archivos, loading, onAprobar, onRechazar, onDescargar }) {
   if (loading) {
     return (
       <div className="bg-white rounded-xl shadow-md p-8">
@@ -102,25 +102,40 @@ return (
                   )}
                 </div>
 
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => onAprobar(archivo)} 
-                    disabled={critico}
-                    className={`flex items-center gap-1 px-3 py-2 rounded text-sm font-medium transition-all ${
-                      critico 
-                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed opacity-50' 
-                        : 'bg-green-600 text-white hover:bg-green-700 shadow-sm'
-                    }`}
-                    title={critico ? "No se puede aprobar un archivo vacío o inválido" : "Aprobar y procesar"}
-                  >
-                     <CheckCircle className="w-4 h-4" /> Aprobar
-                  </button>
-                  <button 
-                    onClick={() => onRechazar(archivo)} 
-                    className="flex items-center gap-1 px-3 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm shadow-sm"
-                  >
-                     <XCircle className="w-4 h-4" /> Rechazar
-                  </button>
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => onDescargar(archivo)}
+                      disabled={critico}
+                      className={`flex items-center gap-1 px-3 py-2 rounded text-sm font-medium transition-all ${
+                        critico 
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed opacity-50' 
+                          : 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'
+                      }`}
+                      title={critico ? "No se puede ver detalles de un archivo vacío o inválido" : "Ver detalles del archivo"}
+                    >
+                      <FileSpreadsheet className="w-4 h-4" /> Excel
+                    </button>
+
+                    <button 
+                      onClick={() => onAprobar(archivo)} 
+                      disabled={critico}
+                      className={`flex items-center gap-1 px-3 py-2 rounded text-sm font-medium transition-all ${
+                        critico 
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed opacity-50' 
+                          : 'bg-green-600 text-white hover:bg-green-700 shadow-sm'
+                      }`}
+                      title={critico ? "No se puede aprobar un archivo vacío o inválido" : "Aprobar y procesar"}
+                    >
+                      <CheckCircle className="w-4 h-4" /> Aprobar
+                    </button>
+                    <button 
+                      onClick={() => onRechazar(archivo)} 
+                      className="flex items-center gap-1 px-3 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm shadow-sm"
+                    >
+                      <XCircle className="w-4 h-4" /> Rechazar
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
