@@ -47,24 +47,19 @@ class PuntoRepository:
         Retorna (DIC_PUNTOS_CLIENTES, DIC_PUNTOS_SUCURSALES) indexados por cod_punto (string).
         """
         rows = self.obtener_todo_compuesto()
-        dic_clientes: Dict[str, Dict[str, str]] = {}
-        dic_sucursales: Dict[str, Dict[str, str]] = {}
+        dic_unificado: Dict[str, Dict[str, str]] = {}
 
         for r in rows:
             clave = r["cod_punto"] or ""
-            # Si tus TXT traen "47-0033" y quieres indexar por "0033", normaliza aquí:
-            # from src.domain.value_objects.codigo_punto import CodigoPunto
-            # clave = CodigoPunto.from_raw(clave).parte_numerica
+            if not clave: continue
 
-            dic_clientes[clave] = {
-                "cliente": r.get("cliente", "") or "",
-                "cod_cliente": r.get("cod_cliente", "") or "",
-            }
-            dic_sucursales[clave] = {
-                "sucursal":   r.get("sucursal", "") or "",
-                "cod_suc":    r.get("cod_suc", "") or "",
-                "cod_ciudad": r.get("cod_ciudad", "") or "",
-                "ciudad":     r.get("ciudad", "") or "",
+            dic_unificado[clave] = {
+                "nombre_punto":   r.get("nom_punto", "") or "",
+                "nombre_cliente": r.get("cliente", "") or "",
+                "ciudad":         r.get("ciudad", "") or "",
+                
+                "cod_cliente":    r.get("cod_cliente", ""),
+                "sucursal":       r.get("sucursal", "")
             }
 
-        return dic_clientes, dic_sucursales
+        return dic_unificado, {}
