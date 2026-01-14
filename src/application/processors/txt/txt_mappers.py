@@ -7,7 +7,8 @@ from src.infrastructure.config.mapeos import(
     TextosConstantes,
     TipoRutaMapeos,
     PrioridadMapeos,
-    TipoPedidoMapeos
+    TipoPedidoMapeos,
+    ClienteMapeos
 )
 
 from src.domain.entities.catalogs import(
@@ -15,6 +16,24 @@ from src.domain.entities.catalogs import(
     ServicioCatalogo,
     DivisaCatalogo
 )
+
+def _buscar_info_punto_txt(codigo_txt: str, dict_unificado: Dict[str, Dict[str, str]]) -> Dict[str, str]:
+    """
+    Busca un punto en el diccionario probando prefijos de cliente si la búsqueda directa falla.
+    Ej: Si codigo_txt es "0611", prueba "46-0611", "45-0611", etc.
+    """
+    codigo = str(codigo_txt).strip()
+    if not codigo: return {}
+
+    if codigo in dict_unificado:
+        return dict_unificado[codigo]
+
+    for prefijo in ClienteMapeos.PRIORIDAD_CLIENTES:
+        clave_prueba = f"{prefijo}-{codigo}"
+        if clave_prueba in dict_unificado:
+            return dict_unificado[clave_prueba]
+
+    return {}
 
 def parse_tipo_records(
     lines: List[str],
@@ -47,9 +66,10 @@ def parse_tipo_records(
     df1 = _crear_df_tipo1(t1) if t1 else None
 
     total_valor_tipo2_numeric = _sumar_valor_tipo2(t2) if t2 else 0
+    dict_completo = {**dict_sucursales, **dict_clientes}
     df2 = _crear_df_tipo2(
         t2, dict_ciudades, dict_tipos_servicio, dict_categorias,
-        dict_tipo_valor, dict_sucursales, dict_clientes
+        dict_tipo_valor, dict_completo
     ) if t2 else None
 
     df3 = _crear_df_tipo3(t3, total_valor_tipo2_numeric) if t3 else None
@@ -88,8 +108,7 @@ def _crear_df_tipo2(
     dict_tipos_servicio: Dict[str, str],
     dict_categorias: Dict[str, str],
     dict_tipo_valor: Dict[str, str],
-    dict_sucursales: Dict[str, Dict[str, str]],
-    dict_clientes: Dict[str, Dict[str, str]],
+    dict_puntos_unificado: Dict[str, Dict[str, str]],
 ) -> pd.DataFrame:
     """
     Crea DataFrame de Tipo 2 (detalle de movimientos).
@@ -216,23 +235,20 @@ def _crear_df_tipo2(
         .to_dict()
     )
 
+    def _obtener_info(cod: str) -> Dict[str, str]:
+        return _buscar_info_punto_txt(cod, dict_puntos_unificado)
+
     def _suc(cod: str) -> str:
-        if pd.isna(cod) or not str(cod).strip():
-            return TextosConstantes.SUCURSAL_NO_ENCONTRADA
-        info = dict_sucursales.get(str(cod).strip(), {})
-        return info.get("sucursal", TextosConstantes.SUCURSAL_NO_ENCONTRADA)
+        info = _obtener_info(cod)
+        return info.get("sucursal") or info.get("nombre_punto") or TextosConstantes.SUCURSAL_NO_ENCONTRADA
 
     def _suc_code(cod: str) -> str:
-        if pd.isna(cod) or not str(cod).strip():
-            return "N/A"
-        info = dict_sucursales.get(str(cod).strip(), {})
-        return info.get("cod_suc", "N/A")
+        info = _obtener_info(cod)
+        return info.get("cod_suc") or "N/A"
 
     def _cli(cod: str) -> str:
-        if pd.isna(cod) or not str(cod).strip():
-            return TextosConstantes.CLIENTE_NO_ENCONTRADO
-        info = dict_clientes.get(str(cod).strip(), {})
-        return info.get("cliente", TextosConstantes.CLIENTE_NO_ENCONTRADO)
+        info = _obtener_info(cod)
+        return info.get("nombre_cliente") or TextosConstantes.CLIENTE_NO_ENCONTRADO
 
     df['SUCURSAL']       = df['CODIGO PUNTO'].apply(_suc)
     df['COD_SUC_INTERNO']= df['CODIGO PUNTO'].apply(_suc_code)

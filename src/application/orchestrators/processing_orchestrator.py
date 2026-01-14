@@ -24,6 +24,7 @@ from src.infrastructure.file_system.path_manager import PathManager
 from src.infrastructure.repositories.punto_repository import PuntoRepository
 from src.infrastructure.config.settings import get_config
 from src.application.processors.xml.xml_processor import XMLResponseGenerator
+from src.application.processors.txt.txt_processor import TXTResponseGenerator
 from src.application.processors.xml.xml_mappers import extract_cc_from_filename
 
 Config = get_config()
@@ -147,7 +148,7 @@ class ProcessingOrchestrator:
         errores_detectados = []
         keyword = Config.validation.valid_filename_keyword.lower()
 
-        if keyword:
+        if keyword and tipo.upper() == "XML":
             if keyword not in ruta.name.lower():
                 errores_detectados.append(f"Nombre de archivo inválido: No contiene el identificador de la empresa ('{keyword}')")
 
@@ -185,7 +186,6 @@ class ProcessingOrchestrator:
                     lineas = [ln.strip() for ln in f.readlines() if ln.strip()]
 
                 tipo2 = sum(1 for ln in lineas if ln.startswith("2,"))
-
                 if tipo2 == 0:
                     errores_detectados.append("No se encontraron registros tipo 2")
 
@@ -218,10 +218,6 @@ class ProcessingOrchestrator:
     def process_approved_file(self, archivo_id: str, ruta: Path, tipo: str, conn) -> bool:
         """
         Procesa archivo que fue APROBADO por el usuario.
-        
-        ¿Cuándo se llama?
-        - Usuario hace clic en "Aprobar" en el Dashboard
-        - Backend llama a este método vía endpoint /api/archivos/aprobar
         
         Args:
             archivo_id: UUID del archivo (para logging/tracking)
@@ -287,9 +283,11 @@ class ProcessingOrchestrator:
         """        
         try:
             logger.info(f"Rechazando archivo: {ruta.name} (ID: {archivo_id})")
+            lista_ids = []
+            cc_code = "00"
 
             if tipo.upper() == "XML":
-                lista_ids = []
+                cc_code = extract_cc_from_filename(ruta.name)
                 try:
                     tree = ET.parse(ruta)
                     root = tree.getroot()
@@ -310,12 +308,33 @@ class ProcessingOrchestrator:
 
                 except Exception as e:
                     logger.exception(f"Error al parsear XML {ruta.name}")
+            
+            elif tipo.upper() == "TXT":
+                cc_code = "00"
+                try:
+                    with open(ruta, "r", encoding="utf-8", errors="ignore") as f:
+                        for line in f:
+                            line = line.strip()
+                            if line.startswith("2,"):
+                                parts = line.split(",")
+                                if len(parts) > 17:
+                                    id_val = parts[16].strip()
+                                    if id_val:
+                                        lista_ids.append(id_val)
+                                elif len(parts) > 0:
+                                    id_val = parts[-1].strip()
+                                    if id_val:
+                                        lista_ids.append(id_val)
+                    
+                except Exception as e:
+                    logger.exception(f"Error al procesar TXT {ruta.name}")
 
-                if not lista_ids:
-                    lista_ids = [ruta.name]
+            if not lista_ids:
+                lista_ids = [ruta.name]
 
-                cc_code = extract_cc_from_filename(ruta.name)
+            lista_ids = sorted(list(set(lista_ids)))
 
+            if tipo.upper() == "XML":
                 XMLResponseGenerator.generar_respuesta(
                     lista_ids=lista_ids,
                     nombre_archivo_original=ruta.name,
@@ -323,6 +342,14 @@ class ProcessingOrchestrator:
                     estado="2",
                     cc_code_from_filename_passed=cc_code,
                     conn=None
+                )
+            elif tipo.upper() == "TXT":
+                TXTResponseGenerator.generar_respuesta(
+                    ids=lista_ids,
+                    nombre_archivo_original=ruta.name,
+                    carpeta_respuesta=Config.paths.carpeta_respuesta_txt,
+                    estado="2",
+                    cc_override=cc_code,
                 )
 
             if tipo.upper() == "XML":
@@ -332,8 +359,8 @@ class ProcessingOrchestrator:
 
             os.makedirs(carpeta_errores, exist_ok=True)
             destino = carpeta_errores / ruta.name
-            shutil.move(ruta, destino)
-            logger.info(f"Archivo movido a: {destino}")
+            shutil.move(str(ruta), str(destino))
+            logger.info(f"Archivo movido a: {destino}") 
             
             if motivo:
                 motivo_path = carpeta_errores / f"{ruta.stem}_MOTIVO.txt"

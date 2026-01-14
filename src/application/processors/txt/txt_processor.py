@@ -19,6 +19,7 @@ from src.infrastructure.repositories.sucursal_repository import SucursalReposito
 from src.infrastructure.repositories.cliente_repository import ClienteRepository
 from src.infrastructure.repositories.punto_repository import PuntoRepository
 from src.domain.value_objects.codigo_punto import CodigoPunto
+from src.application.processors.xml.xml_mappers import extract_cc_from_filename
 
 Config = get_config()
 logger = logging.getLogger(__name__)

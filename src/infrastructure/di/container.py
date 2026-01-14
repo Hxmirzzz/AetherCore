@@ -174,7 +174,7 @@ class ApplicationContainer:
         return DirectoryWatcher
 
     # ====== ORCHESTRATORS ======
-    def xml_orchestrator(self) -> ProcessingOrchestrator:
+    def orchestrator(self) -> ProcessingOrchestrator:
         return ProcessingOrchestrator(
             xml_processor=self.xml_processor(),
             path_manager=self.path_manager(),

@@ -176,7 +176,7 @@ def _escanear_y_prevalidar(
         carpeta: Path a la carpeta de entrada
     """
     try:
-        orchestrator = container.xml_orchestrator()
+        orchestrator = container.orchestrator()
         conn = container.db_connection_read()
         
         patron = "*.xml" if tipo == "XML" else "*.txt"

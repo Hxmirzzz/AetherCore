@@ -398,9 +398,9 @@ async def aprobar_archivo(
         container = ApplicationContainer()
         
         if archivo.tipo == "XML":
-            orchestrator = container.xml_orchestrator()
+            orchestrator = container.orchestrator()
         else:
-            orchestrator = container.txt_orchestrator()
+            orchestrator = container.orchestrator()
 
         conn = container.db_connection_read()
         ruta_archivo = Path(archivo.ruta_interna)
