@@ -1,24 +1,12 @@
-env: dev
+app:
+  name: "AetherCore"
+  version: "4.0.0"
 
-paths:
-  base_dir: .
-  logs_dir: ./logs
-  in_txt: ./data/in/txt
-  out_txt: ./data/out/txt
-  in_xml: ./data/in/xml
-  out_xml: ./data/out/xml
-  handled_txt: ./data/handled/txt
-  handled_xml: ./data/handled/xml
-  errors_xml: ./logs/errors/xml
-  main_log_name: aethercore.log
+service:
+  poll_interval_seconds: 30
+  batch_size: 100
+  max_retries: 3
 
-database:
-  conn_str: ""  # si se deja vacío aquí, se tomará de la variable de entorno MSSQL_CONN_STR
-
-logs:
-  level: INFO
-  console: true
-  # main_log: aethercore.log  # opcional; si no, toma paths.main_log_name
-
-runtime:
-  monitor_interval_seconds: 30
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

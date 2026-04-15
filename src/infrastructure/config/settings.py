@@ -11,64 +11,6 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic.functional_validators import field_validator
 
-class DatabaseConfig(BaseSettings):
-    """
-    Configuración de base de datos (Pydantic v2).
-    """
-    server: str = Field(..., alias='SQL_SERVER_PROD')
-    database: str = Field(..., alias='SQL_DATABASE_PROD')
-    username: str = Field(..., alias='SQL_USERNAME_PROD')
-    password: str = Field(..., alias='SQL_PASSWORD_PROD')
-
-    # Lee .env automáticamente
-    model_config = SettingsConfigDict(
-        env_file='.env',
-        env_file_encoding='utf-8',
-        extra='ignore',
-    )
-    @property
-    def connection_string(self) -> str:
-        """Genera el connection string para SQL Server"""
-        # Si quieres usar el driver de tu .env (TEST_SQL_DRIVER) cámbialo aquí.
-        return (
-            f'DRIVER={{SQL Server}};'
-            f'SERVER={self.server};'
-            f'DATABASE={self.database};'
-            f'UID={self.username};'
-            f'PWD={self.password}'
-        )
-
-class TestDatabaseConfig(BaseSettings):
-    driver: str = Field(..., alias='TEST_SQL_DRIVER')
-    server: str = Field(..., alias='TEST_SQL_SERVER')
-    database: str = Field(..., alias='TEST_SQL_DATABASE')
-    username: str = Field(..., alias='TEST_SQL_USERNAME')
-    password: str = Field(..., alias='TEST_SQL_PASSWORD')
-    trusted: int = Field(default=0, alias='TEST_SQL_TRUSTED')
-
-    model_config = SettingsConfigDict(
-        env_file='.env',
-        env_file_encoding='utf-8',
-        extra='ignore',
-    )
-
-    @property
-    def connection_string(self) -> str:
-        if self.trusted == 1:
-            return (
-                f"DRIVER={{{self.driver}}};"
-                f"SERVER={self.server};"
-                f"DATABASE={self.database};"
-                f"Trusted_Connection=yes;"
-            )
-        return (
-            f"DRIVER={{{self.driver}}};"
-            f"SERVER={self.server};"
-            f"DATABASE={self.database};"
-            f"UID={self.username};"
-            f"PWD={self.password}"
-        )
-
 class PathConfig(BaseSettings):
     """
     Configuración de rutas/carpetas de la aplicación.
@@ -254,8 +196,6 @@ class AppConfig(BaseSettings):
     """
     environment: str = Field(default='DEV', alias='APP_ENV')
 
-    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
-    database_test: TestDatabaseConfig = Field(default_factory=TestDatabaseConfig)
     paths: PathConfig = Field(default_factory=PathConfig)
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
     jwt: JWTConfig = Field(default_factory=JWTConfig)
