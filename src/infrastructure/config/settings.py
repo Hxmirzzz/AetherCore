@@ -190,6 +190,35 @@ class ValidationConfig(BaseSettings):
         extra='ignore',
     )
 
+class ExternalApiConfig(BaseSettings):
+    """
+    Configuración para la API externa.
+    """
+    url: str = Field(..., alias='EXTERNAL_API_URL')
+    user: str = Field(..., alias='EXTERNAL_API_USER')
+    password: str = Field(..., alias='EXTERNAL_API_PASSWORD')
+    bulk_limit: int = Field(default=10, alias='API_BULK_LIMIT')
+
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='ignore',
+    )
+
+class InternalApiConfig(BaseSettings):
+    """
+    Configuración para la API interna.
+    """
+    url: str = Field(..., alias='INTERNAL_API_URL')
+    user: str = Field(..., alias='INTERNAL_API_USER')
+    password: str = Field(..., alias='INTERNAL_API_PASSWORD')
+
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='ignore',
+    )
+
 class AppConfig(BaseSettings):
     """
     Configuración general de la aplicación (Pydantic v2).
