@@ -1,25 +1,18 @@
 from __future__ import annotations
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 import logging, os
 import pandas as pd
+from datetime import datetime
 
 from .txt_file_reader import TxtFileReader
 from .txt_data_transformer import TxtDataTransformer
 from src.infrastructure.file_system.path_manager import PathManager
-from src.infrastructure.config.mapeos import TextosConstantes
 from src.application.processors.xml.xml_mappers import extract_cc_from_filename, build_timestamp_for_response
 from .txt_mappers import parse_tipo_records
-from src.infrastructure.config.mapeos import ClienteMapeos
-from src.application.services.insertion_service import InsertionService
 from src.infrastructure.config.settings import get_config
-
-from src.infrastructure.repositories.ciudad_repository import CiudadRepository
-from src.infrastructure.repositories.sucursal_repository import SucursalRepository
-from src.infrastructure.repositories.cliente_repository import ClienteRepository
-from src.infrastructure.repositories.punto_repository import PuntoRepository
-from src.domain.value_objects.codigo_punto import CodigoPunto
-from src.application.processors.xml.xml_mappers import extract_cc_from_filename
+from src.infrastructure.api.external_api_client import ExternalApiClient
+from src.domain.entities.catalogs import ServicioCatalogo
 
 Config = get_config()
 logger = logging.getLogger(__name__)
@@ -80,7 +73,6 @@ class TXTResponseGenerator:
             ruta = carpeta_respuesta / nombre
 
             with open(ruta, "w", encoding="utf-8") as f:
-                # Ordenamos por ID solo para dejar la salida ordenada
                 for id_val, est in sorted(pares_id_estado, key=lambda t: str(t[0])):
                     f.write(f"{str(id_val).strip()},{str(est).strip()}\n")
 
@@ -96,23 +88,26 @@ class TXTProcessor:
         reader: TxtFileReader | None = None,
         transformer: TxtDataTransformer | None = None,
         paths: PathManager | None = None,
-        insertion_service: InsertionService | None = None
+        external_api: ExternalAPI | None = None,
     ):
         self._reader = reader or TxtFileReader()
         self._transformer = transformer or TxtDataTransformer()
         self._paths = paths or PathManager()
-        self._insertion_service = insertion_service
+        self._external_api = external_api
 
-    def procesar_archivo_txt(self, ruta_txt: Path, conn: Any) -> bool:
+    def procesar_archivo_txt(self, ruta_txt: Path) -> Tuple[bool, List[Dict[str, Any]]]:
+        """
+        Retorna una tupla: (Exito_booleano, Lista_de_Servicios_Payload)
+        """
         try:
             info = self._reader.read(ruta_txt)
             if info.get("empty", False):
-                self._manejar_txt_fallido(ruta_txt, "2", "TXT vacío", conn)
-                return False
+                self._manejar_txt_fallido(ruta_txt, "2", "TXT vacío")
+                return False, []
 
             df_raw = info["df"]
-
             enc = info.get("encoding") or "utf-8"
+
             with open(ruta_txt, "r", encoding=enc, errors="ignore") as f:
                 raw_lines = [ln.rstrip("\n") for ln in f.readlines()]
 
@@ -122,103 +117,75 @@ class TXTProcessor:
             es_por_tipos = has_t1 and has_t2 and has_t3
 
             out_xlsx = self._paths.output_txt_dir() / f"{ruta_txt.stem}.xlsx"
+            payload_servicios = []
 
-            if es_por_tipos:    
-                ciud_repo = CiudadRepository(conn)
-                punto_repo = PuntoRepository(conn)
-                
-                dict_ciudades = ciud_repo.obtener_todas()
-                dict_clientes, dict_sucursales = punto_repo.mapas_para_mappers()
-                dict_clientes    = { CodigoPunto.from_raw(k).parte_numerica: v for k, v in dict_clientes.items() }
-                dict_sucursales  = { CodigoPunto.from_raw(k).parte_numerica: v for k, v in dict_sucursales.items() }
-                
-                dict_tipos_servicio = {}
-                dict_categorias = {}
-                dict_tipo_valor = {}
+            if es_por_tipos:
     
                 df1, df2, df3 = parse_tipo_records(
                     raw_lines,
-                    dict_ciudades,
-                    dict_tipos_servicio,
-                    dict_categorias,
-                    dict_tipo_valor,
-                    dict_sucursales,
-                    dict_clientes
+                    dict_ciudades={},
+                    dict_tipos_servicio={},
+                    dict_categorias={},
+                    dict_tipo_valor={},
+                    dict_sucursales={},
+                    dict_clientes={}
                 )
-
-                nit_cliente = 'DESCONOCIDO'
-                fecha_generacion_txt = None
-
-                if df1 is not None and not df1.empty and 'NIT CLIENTE' in df1.columns:
-                    nit_cliente = str(df1['NIT CLIENTE'].iloc[0]).strip()
-
-                    if 'FECHA GENERACION' in df1.columns:
-                        # La fecha se almacena en formato dd/mm/yyyy
-                        fecha_str = str(df1['FECHA GENERACION'].iloc[0]).strip()
-                        if fecha_str:
-                            try:
-                                from datetime import datetime
-                                # Convertir de 'dd/mm/yyyy' (string) a objeto date
-                                fecha_generacion_txt = datetime.strptime(fecha_str, '%d/%m/%Y').date()
-                            except Exception:
-                                logger.exception(f"Error al parsear FECHA GENERACION '{fecha_str}' del TIPO 1.")
-                                pass
-
-                if fecha_generacion_txt is None:
-                    from datetime import date
-                    logger.warning("No se pudo obtener la FECHA GENERACION del TIPO 1. Usando fecha actual.")
-                    fecha_generacion_txt = date.today()
-                
-                if df2 is not None and not df2.empty:
-                    
-                    if self._insertion_service is None:
-                        logger.error("InsertionService no inyectado en TXTProcessor. No se pudo insertar Tipo 2.")
-                        pass # Si no es crítica, se continúa sin inserción.
-                    else:
-                        registros_tipo2 = df2.to_dict('records')
-
-                        resultado_insercion_lista = self._insertion_service.insertar_multiples_desde_txt(
-                            registros_tipo2=registros_tipo2,
-                            nit_cliente=nit_cliente,
-                            nombre_archivo=ruta_txt.name,
-                            fecha_generacion_txt=fecha_generacion_txt
-                        )
-
-                        fallidos = [r for r in resultado_insercion_lista if not r.exitoso]
-                        if fallidos:
-                            msg = f"Fallo en {len(fallidos)} de {len(resultado_insercion_lista)} inserciones Tipo 2. Primer error: {fallidos[0].error}"
-                            logger.error(msg)
-                            pass
 
                 ok_excel = self._transformer.write_excel_consolidated(out_xlsx, df1, df2, df3, hoja_titulo="Consolidado")
                 if not ok_excel:
-                    self._manejar_txt_fallido(ruta_txt, "2", "Error escribiendo Excel consolidado", conn)
-                    return False
+                    self._manejar_txt_fallido(ruta_txt, "2", "Error escribiendo Excel consolidado")
+                    return False, []
 
-                ids = []
+                if df2 is not None and not df2.empty:
+                    clientes_dict = self._external_api.get_clients_mapping() if self._external_api else {}
+                    fecha_programacion = date.today().strftime("%Y-%m-%d")
+                    if df1 is not None and not df1.empty and 'FECHA GENERACION' in df1.columns:
+                        fecha_str = str(df1['FECHA GENERACION'].iloc[0]).strip()
+                        if fecha_str:
+                            try:
+                                fecha_programacion = datetime.strptime(fecha_str, "%Y%m%d").strftime("%Y-%m-%d")
+                            except:
+                                pass
+                    
+                    for _, row in df2.iterrows():
+                        nit_txt = str(row.get("NIT CLIENTE", "")).strip()
+                        client_code = clientes_dict.get(nit_txt, "") or extract_cc_from_filename(ruta_txt.name)
+
+                        punto_limpio = str(row.get("CODIGO PUNTO", "")).strip()
+                        atm_code = f"{client_code}-{punto_limpio}" if punto_limpio else ""
+
+                        codigo_servicio = row.get("SERVICIO", 0)
+                        try:
+                            codigo_servicio = int(codigo_servicio)
+                        except ValueError:
+                            codigo_servicio = 0
+                        service_type_code = ServicioCatalogo.obtener_codigo_api(codigo_servicio, default="PA")
+                        
+                        servicio = {
+                            "client_code": client_code,
+                            "service_type": service_type_code,
+                            "point_code": "",
+                            "atm_code": atm_code,
+                            "service_date": fecha_programacion,
+                            "time_window_start": "08:00:00.000Z",
+                            "time_window_end": "18:00:00.000Z",
+                            "declared_amount": str(row.get("VALOR", "")).strip(),
+                            "currency": "COP",
+                            "observations": str(row.get("OBSERVACIONES", "")).strip(),
+                            "bank_name": "",
+                            "bank_account_number": "",
+                            "bank_account_holder": "",
+                            "requested_denominations": []
+                        }
+                        payload_servicios.append(servicio)
+
+                ids = [] 
                 if df2 is not None and not df2.empty and 'CODIGO' in df2.columns:
                     ids = sorted(set(str(x).strip() for x in df2['CODIGO'].dropna().tolist()))
                 if not ids:
                     ids = [ruta_txt.name]
                     
-                cc_from_client = None
-                if df2 is not None and not df2.empty and 'CODIGO PUNTO' in df2.columns:
-                    for punto_cod in df2['CODIGO PUNTO'].dropna().unique():
-                        try:
-                            punto_cod = str(punto_cod).strip()
-                            info_cli = dict_clientes.get(punto_cod, {})
-                            cod_cliente_raw = info_cli.get('cod_cliente')
-                            
-                            if cod_cliente_raw:
-                                cc_from_client = ClienteMapeos.get_cc_code(str(cod_cliente_raw).strip())
-                                if cc_from_client and cc_from_client != "00":
-                                    break
-                        except Exception:
-                            continue
-
-                if not cc_from_client or cc_from_client == "00":
-                    cc_from_client = extract_cc_from_filename(ruta_txt.name)
-
+                cc_from_client = extract_cc_from_filename(ruta_txt.name)
                 estados_por_id = self._estados_por_codigo(df2 if df2 is not None else pd.DataFrame())
 
                 if estados_por_id:
@@ -251,14 +218,14 @@ class TXTProcessor:
             except Exception:
                 logger.exception("Error moviendo TXT a gestionados (se conserva el éxito del procesamiento)")
 
-            return True
+            return True, payload_servicios
 
         except Exception as e:
             logger.exception("Error inesperado en procesamiento TXT")
-            self._manejar_txt_fallido(ruta_txt, "2", f"Error inesperado: {e}", conn)
-            return False
+            self._manejar_txt_fallido(ruta_txt, "2", f"Error inesperado: {e}")
+            return False, []
 
-    def _manejar_txt_fallido(self, ruta_txt: Path, estado_respuesta: str, razon_error: str, conn: Any):
+    def _manejar_txt_fallido(self, ruta_txt: Path, estado_respuesta: str, razon_error: str):
         """Maneja archivos TXT que fallaron en el procesamiento"""
         try:
             logger.error("Manejando TXT fallido '%s': %s", ruta_txt.name, razon_error)
@@ -271,32 +238,8 @@ class TXTProcessor:
         except Exception:
             logger.exception("Error manejando TXT fallido")
             
-    def _estado_para_respuesta(self, df: pd.DataFrame) -> str:
-        """
-        Determina el estado de respuesta basado en valores 'no encontrado'.
-        
-        Returns:
-            "1" si todo está OK, "2" si hay errores
-        """
-        textos_error = {
-            TextosConstantes.CLIENTE_NO_ENCONTRADO,
-            TextosConstantes.CIUDAD_NO_ENCONTRADA,
-            TextosConstantes.SUCURSAL_NO_ENCONTRADA,
-            TextosConstantes.TIPO_NO_ENCONTRADO,
-            TextosConstantes.PUNTO_NO_ENCONTRADO_XML,
-            TextosConstantes.CATEGORIA_NO_ENCONTRADA,
-        }
-        try:
-            for col in df.columns:
-                serie = df[col].astype(str)
-                for texto_error in textos_error:
-                    if serie.str.contains(texto_error, case=False, regex=False).any():
-                        logger.warning("Estado '2' por encontrar: %s en columna %s", texto_error, col)
-                        return "2"
-            return "1"
-        except Exception:
-            logger.exception("Error determinando estado de respuesta")
-            return "1"
+    def _estado_para_respuesta(self) -> str:
+        return "1"
 
     def _estados_por_codigo(self, df: pd.DataFrame) -> dict[str, str]:
         """
@@ -309,67 +252,9 @@ class TXTProcessor:
         if df is None or df.empty or 'CODIGO' not in df.columns:
             return estados
 
-        textos_error = {
-            TextosConstantes.CLIENTE_NO_ENCONTRADO,
-            TextosConstantes.CIUDAD_NO_ENCONTRADA,
-            TextosConstantes.SUCURSAL_NO_ENCONTRADA,
-            TextosConstantes.TIPO_NO_ENCONTRADO,
-            TextosConstantes.PUNTO_NO_ENCONTRADO_XML,
-            TextosConstantes.CATEGORIA_NO_ENCONTRADA,
-        }
-
         try:
-            for codigo, subdf in df.groupby('CODIGO'):
-                estado = "1"
-                for col in subdf.columns:
-                    serie = subdf[col].astype(str)
-                    for texto_error in textos_error:
-                        if serie.str.contains(texto_error, case=False, regex=False).any():
-                            estado = "2"
-                            break
-                    if estado == "2":
-                        break
-
-                estados[str(codigo).strip()] = estado
-
-        except Exception:
-            logger.exception("Error determinando estado por CODIGO")
-        return estados
-    
-    def _estados_por_codigo(self, df: pd.DataFrame) -> dict[str, str]:
-        """
-        Determina el estado de respuesta por CODIGO (ID de solicitud).
-        
-        Retorna un dict { '59729603': '2', '59729604': '1', ... }.
-        """
-        estados: dict[str, str] = {}
-
-        if df is None or df.empty or 'CODIGO' not in df.columns:
-            return estados
-
-        textos_error = {
-            TextosConstantes.CLIENTE_NO_ENCONTRADO,
-            TextosConstantes.CIUDAD_NO_ENCONTRADA,
-            TextosConstantes.SUCURSAL_NO_ENCONTRADA,
-            TextosConstantes.TIPO_NO_ENCONTRADO,
-            TextosConstantes.PUNTO_NO_ENCONTRADO_XML,
-            TextosConstantes.CATEGORIA_NO_ENCONTRADA,
-        }
-
-        try:
-            for codigo, subdf in df.groupby('CODIGO'):
-                estado = "1"
-                for col in subdf.columns:
-                    serie = subdf[col].astype(str)
-                    for texto_error in textos_error:
-                        if serie.str.contains(texto_error, case=False, regex=False).any():
-                            estado = "2"
-                            break
-                    if estado == "2":
-                        break
-
-                estados[str(codigo).strip()] = estado
-
+            for codigo, _ in df.groupby('CODIGO'):
+                estados[str(codigo).strip()] = "1"
         except Exception:
             logger.exception("Error determinando estado por CODIGO")
         return estados

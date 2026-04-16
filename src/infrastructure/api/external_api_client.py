@@ -72,3 +72,48 @@ class ExternalApiClient:
                 error_data = response.text if response else "Unknown Error"
                 
             return {"status": "error", "message": str(e), "details": error_data}
+
+    def get_clients_mapping(self) -> Dict[str, Any]:
+        """Descarga los clientes y devuelve un diccionario { "NIT": "client_code" }."""
+        if not self.token:
+            self.authenticate()
+
+        url = f"{self.base_url}/api/v1/clients/"
+        try:
+            response = self.session.get(url, timeout=15)
+            response.raise_for_status()
+            clients_data = response.json()
+            mapping = {}
+            for client in clients_data:
+                nit = str(client.get("tax_identification", "")).strip()
+                code = client.get("client_code", "")
+                if nit and code:
+                    mapping[nit] = code
+            return mapping
+        except Exception as e:
+            logger.error(f"Unexpected error getting clients mapping: {e}")
+            return {}
+
+    def get_service_types_mapping(self) -> Dict[str, str]:
+        """
+        Descarga los tipos de servicio y devuelve un diccionario { "name": "code" }.
+        Ejemplo: { "RECOLECCION": "RC" }
+        """
+        if not self.token:
+            self.authenticate()
+
+        url = f"{self.base_url}/api/v1/service-types/"
+        try:
+            response = self.session.get(url, timeout=15)
+            response.raise_for_status()
+            service_types_data = response.json()
+            mapping = {}
+            for service_type in service_types_data:
+                name = service_type.get("name", "").upper()
+                code = service_type.get("code", "")
+                if code and name:
+                    mapping[name] = code
+            return mapping
+        except Exception as e:
+            logger.error(f"Unexpected error getting service types mapping: {e}")
+            return {}

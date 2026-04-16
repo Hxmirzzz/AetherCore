@@ -8,7 +8,7 @@ Orquestador de procesamiento (XML/TXT).
 """
 from __future__ import annotations
 import logging
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, List
 from pathlib import Path
 import time
 import threading
@@ -21,11 +21,12 @@ import xml.etree.ElementTree as ET
 from src.application.processors.xml.xml_processor import XMLProcessor
 from src.application.processors.txt.txt_processor import TXTProcessor
 from src.infrastructure.file_system.path_manager import PathManager
-from src.infrastructure.repositories.punto_repository import PuntoRepository
 from src.infrastructure.config.settings import get_config
 from src.application.processors.xml.xml_processor import XMLResponseGenerator
 from src.application.processors.txt.txt_processor import TXTResponseGenerator
 from src.application.processors.xml.xml_mappers import extract_cc_from_filename
+from src.infrastructure.api.internal_api_client import InternalApiClient
+from src.infrastructure.api.external_api_client import ExternalApiClient    
 
 Config = get_config()
 logger = logging.getLogger(__name__)
@@ -36,6 +37,8 @@ class ProcessingOrchestrator:
         xml_processor: XMLProcessor,
         path_manager: PathManager,
         watcher_factory: Callable,
+        internal_api_client: InternalApiClient,
+        external_api_client: ExternalApiClient,
         debounce_ms: int = 800,
         txt_processor: TXTProcessor | None = None,
     ):
@@ -44,64 +47,127 @@ class ProcessingOrchestrator:
         self._paths = path_manager
         self._Watcher = watcher_factory
         self._debounce_ms = debounce_ms
+        self._internal_api = internal_api_client
+        self._external_api = external_api_client
+        self._bulk_limit = Config.external_api.bulk_limit
 
-    # ===== XML existentes (asumidos) =====
-    def run_once(self, puntos_info: Dict[str, Dict[str, str]], conn: Any):
-        entrada = self._paths.input_xml_dir()
-        salida = self._paths.output_xml_dir()
-        logger.info("Procesando XML (once) en: %s", str(entrada))
-        for xml_file in sorted(Path(entrada).glob("*.xml")):
-            out_xlsx = self._paths.build_output_excel_path(xml_file)
-            self._xml.procesar_archivo_xml(xml_file, out_xlsx, puntos_info, conn)
-
-    def run_watch(self, puntos_info: Dict[str, Dict[str, str]], conn: Any):
-        entrada = self._paths.input_xml_dir()
-        logger.info("Observando carpeta XML: %s", str(entrada))
+    def _ejecutar_pipeline_apis(self, file_path: Path, tipo: str, payload_servicios: List[Dict[str, Any]]) -> bool:
+        """
+        Orquesta el envío de datos: Primero a DB local (Pendiente), luego API Externa, y actualiza estado.
+        """
+        if not payload_servicios:
+            logger.warning("No hay servicios para procesar en %s", file_path.name)
+            return False
         
+        log_inicial = {
+            "App": "AetherCore_1",
+            "Name": file_path.name,
+            "FileType": tipo.upper(),
+            "Estado": "PENDIENTE",
+            "RecordCount": len(payload_servicios)
+        }
+        
+        try:
+            respuesta_interna = self._internal_api.register_event(log_inicial)
+            log_id = respuesta_interna.get("id")
+            
+            if not log_id:
+                logger.error("No se recibió un ID válido desde la base de datos local.")
+                return False
+        except Exception as e:
+            logger.error("Error al registrar evento en DB local: %s", e)
+            return False
+        
+        try:
+            respuesta_externa = None
+            if len(payload_servicios) > self._bulk_limit:
+                logger.info("Cantidad de servicios (%d) mayor al límite (%d). Procesando en lotes.", len(payload_servicios), self._bulk_limit)
+                respuesta_externa = self._external_api.create_bulk_orders(payload_servicios)
+            else:
+                logger.info("Cantidad de servicios (%d) menor o igual al límite (%d). Procesando individualmente.", len(payload_servicios), self._bulk_limit)
+                respuestas = []
+                for orden in payload_servicios:
+                    resp = self._external_api.create_service_order(orden)
+                    respuestas.append(resp)
+                respuesta_externa = {"status": "success", "data": respuestas}
+            
+            if respuesta_externa and respuesta_externa.get("status") == "success":
+                self._internal_api.update_event(log_id, {
+                    "Estado": "PROCESADO_BULK" if len(payload_servicios) > self._bulk_limit else "APROBADO",
+                    "ResponseJson": str(respuesta_externa.get("data"))
+                })
+                return True
+            else:
+                raise Exception(str(respuesta_externa))
+        except Exception as e:
+            logger.error("Error al enviar a API Externa: %s", e)
+            self._internal_api.update_event(log_id, {
+                "Estado": "ERROR",
+                "ErrorDetails": str(e)
+            })
+            return False
+
+    def process_approved_file(self, archivo_id: str, ruta: Path, tipo: str) -> bool:
+        try:
+            logger.info(f"Procesando archivo aprobado: {ruta.name} (ID: {archivo_id})")
+            
+            payload_servicios = []
+            exito = False
+
+            if tipo.upper() == "XML":
+                ruta_excel = self._paths.output_xml_dir() / f"{ruta.stem}.xlsx"
+                exito, payload_servicios = self._xml.procesar_archivo_xml(ruta, ruta_excel)
+            elif tipo.upper() == "TXT":
+                if self._txt is None: return False
+                exito, payload_servicios = self._txt.procesar_archivo_txt(ruta)
+            
+            if exito and payload_servicios:
+                return self._ejecutar_pipeline_apis(ruta, tipo, payload_servicios)
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error al procesar archivo aprobado: {ruta.name} - {e}")
+            return False
+
+    # ===== XML =====
+    def run_once_xml(self):
+        entrada = self._paths.input_xml_dir()
+        for xml_file in sorted(Path(entrada).glob("*.xml")):
+            self.process_approved_file(str(uuid.uuid4()), xml_file, "XML")
+
+    def run_watch_xml(self):
+        entrada = self._paths.input_xml_dir()
         def on_file_callback(file_path: Path):
             if file_path.suffix.lower() == '.xml':
-                self._xml.procesar_archivo_xml(
-                    file_path, 
-                    self._paths.build_output_excel_path(file_path), 
-                    puntos_info, 
-                    conn
-                )
+                self.process_approved_file(str(uuid.uuid4()), file_path, "XML")
         
         watcher = self._Watcher(entrada, on_new_file=on_file_callback, debounce_ms=self._debounce_ms)
         watcher.start()
 
-    # ===== TXT mínimos (si no los tienes, usa estos placeholders) =====
-    def run_once_txt(self, puntos_info, conn):
-        if self._txt is None:
-            logger.warning("TXTProcessor no inyectado; se omite procesamiento TXT.")
-            return
+    # ===== TXT =====
+    def run_once_txt(self):
         entrada = self._paths.input_txt_dir()
-        logger.info("Procesando TXT (once) en: %s", str(entrada))
         for txt in sorted(Path(entrada).glob("*.txt")):
-            self._txt.procesar_archivo_txt(txt, conn)
+            self.process_approved_file(str(uuid.uuid4()), txt, "TXT")
 
-    def run_watch_txt(self, puntos_info, conn):
-        if self._txt is None:
-            logger.warning("TXTProcessor no inyectado; se omite watch TXT.")
-            return
+    def run_watch_txt(self):
         entrada = self._paths.input_txt_dir()
-        logger.info("Observando carpeta TXT: %s", str(entrada))
         
         def on_file_callback(file_path: Path):
             if file_path.suffix.lower() == '.txt':
-                self._txt.procesar_archivo_txt(file_path, conn)
+                self.process_approved_file(str(uuid.uuid4()), file_path, "TXT")
         
         watcher = self._Watcher(entrada, on_new_file=on_file_callback, debounce_ms=self._debounce_ms)
         watcher.start()
 
     # ===== ALL =====
-    def run_once_all(self, puntos_info: Dict[str, Dict[str, str]], conn: Any, only: Optional[str] = None):
+    def run_once(self, only: Optional[str] = None):
         if only is None or only == "xml":
-            self.run_once(puntos_info, conn)
+            self.run_once_xml()
         if only is None or only == "txt":
-            self.run_once_txt(puntos_info, conn)
+            self.run_once_txt()
 
-    def run_watch_all(self, puntos_info: Dict[str, Dict[str, str]], conn: Any, only: Optional[str] = None):
+    def run_watch(self, only: Optional[str] = None):
         threads = []
 
         def _t(fn, name):
@@ -110,10 +176,10 @@ class ProcessingOrchestrator:
             t.start()
 
         if only is None or only == "xml":
-            _t(lambda: self.run_watch(puntos_info, conn), "watch-xml")
+            _t(lambda: self.run_watch_xml(), "watch-xml")
 
         if only is None or only == "txt":
-            _t(lambda: self.run_watch_txt(puntos_info, conn), "watch-txt")
+            _t(lambda: self.run_watch_txt(), "watch-txt")
 
         try:
             while True:
@@ -121,7 +187,7 @@ class ProcessingOrchestrator:
         except KeyboardInterrupt:
             logger.info("Deteniendo watchers…")
 
-    def _prevalidate_file(self, ruta: Path, tipo: str, conn) -> dict:
+    def _prevalidate_file(self, ruta: Path, tipo: str) -> dict:
         """
         Pre-valida archivo SIN procesarlo completamente.
         
@@ -134,7 +200,6 @@ class ProcessingOrchestrator:
         Args:
             ruta: Path al archivo
             tipo: "XML" o "TXT" (mayúsculas)
-            conn: Conexión a BD (no se usa en validación básica)
         
         Returns:
             {
@@ -215,7 +280,7 @@ class ProcessingOrchestrator:
                 "preview": {}
             }
 
-    def process_approved_file(self, archivo_id: str, ruta: Path, tipo: str, conn) -> bool:
+    def process_approved_file(self, archivo_id: str, ruta: Path, tipo: str) -> bool:
         """
         Procesa archivo que fue APROBADO por el usuario.
         
@@ -223,7 +288,6 @@ class ProcessingOrchestrator:
             archivo_id: UUID del archivo (para logging/tracking)
             ruta: Path al archivo físico
             tipo: "XML" o "TXT"
-            conn: Conexión a BD
         
         Returns:
             True si procesó exitosamente, False si falló
@@ -232,12 +296,8 @@ class ProcessingOrchestrator:
             logger.info(f"Procesando archivo aprobado: {ruta.name} (ID: {archivo_id})")
             
             if tipo.upper() == "XML":
-                punto_repo = PuntoRepository(conn)
-                dict_clientes, dict_sucursales = punto_repo.mapas_para_mappers()
-                puntos_info = {**dict_clientes, **dict_sucursales}
-
                 ruta_excel = self._paths.output_xml_dir() / f"{ruta.stem}.xlsx"
-                exito = self._xml.procesar_archivo_xml(ruta, ruta_excel, puntos_info, conn)
+                exito = self._xml.procesar_archivo_xml(ruta, ruta_excel)
                 
                 if exito:
                     logger.info(f"Archivo XML {ruta.name} procesado exitosamente")
@@ -251,7 +311,7 @@ class ProcessingOrchestrator:
                     logger.error("TXTProcessor no disponible")
                     return False
                 
-                exito = self._txt.procesar_archivo_txt(ruta, conn)
+                exito = self._txt.procesar_archivo_txt(ruta)
                 
                 if exito:
                     logger.info(f"Archivo TXT {ruta.name} procesado exitosamente")
@@ -341,7 +401,6 @@ class ProcessingOrchestrator:
                     punto_de_referencia="RECHAZO_MANUAL",
                     estado="2",
                     cc_code_from_filename_passed=cc_code,
-                    conn=None
                 )
             elif tipo.upper() == "TXT":
                 TXTResponseGenerator.generar_respuesta(

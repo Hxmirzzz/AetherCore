@@ -69,7 +69,7 @@ class CategoriaCatalogo:
 
 
 # ══════════════════════════════════════════════════════════════
-# SERVICIOS (migrado desde mapeos.py)
+# SERVICIOS
 # ══════════════════════════════════════════════════════════════
 
 class CodigoServicio(Enum):
@@ -105,6 +105,17 @@ class ServicioCatalogo:
     _CODIGOS: Dict[str, int] = {
         v.upper(): k for k, v in _DESCRIPCIONES.items()
     }
+
+    _API_CODES: Dict[int, str] = {
+        1: "PV",  # PROVISION
+        3: "TF",  # TRASLADO ENTRE FONDOS
+        4: "PA",  # PROVISION ATM
+        5: "RC",  # RECOLECCION
+        8: "FJ",  # FAJILLADO EFECTIVO
+        12: "SC", # SUMINISTRO DE CAMBIO
+        14: "FL", # MANTENIMIENTO PRIMER NIVEL ATM - FLM
+        26: "CB", # CONSIGNACION EFECTIVO
+    }
     
     @classmethod
     def obtener_descripcion(cls, codigo: int) -> Optional[str]:
@@ -115,6 +126,14 @@ class ServicioCatalogo:
     def obtener_codigo(cls, descripcion: str) -> Optional[int]:
         """Obtiene el código de un servicio por su descripción"""
         return cls._CODIGOS.get(descripcion.strip().upper())
+    
+    @classmethod
+    def obtener_codigo_api(cls, codigo_legacy: int, default: str = "PA") -> str:
+        """
+        Obtiene el código de la API externa (Ej: 'RC') dado el código numérico del TXT.
+        Retorna el valor 'default' si no lo encuentra.
+        """
+        return cls._API_CODES.get(codigo_legacy, default)
     
     @classmethod
     def todas_descripciones(cls) -> Dict[int, str]:
