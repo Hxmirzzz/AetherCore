@@ -60,7 +60,7 @@ class ProcessingOrchestrator:
             return False
         
         log_inicial = {
-            "App": "AetherCore_1",
+            "App": "AE_CORE_1",
             "Name": file_path.name,
             "FileType": tipo.upper(),
             "Estado": "PENDIENTE",

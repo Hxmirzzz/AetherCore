@@ -1,15 +1,20 @@
 """
 Console Runner para AetherCore (XML/TXT) - MODO MANUAL CON PRE-VALIDACIÓN.
 
-Uso:
+Uso normal:
     python -m src.presentation.console.console_app --watch
     python -m src.presentation.console.console_app --watch --only xml
+    python -m src.presentation.console.console_app --watch --only txt
+
+Uso de PRUEBA LOCAL (Autoprocesa sin frontend):
+    python -m src.presentation.console.console_app --watch --local-test
 """
 from __future__ import annotations
 import argparse
 import logging
 import time
 import requests
+import os
 from pathlib import Path
 from typing import Dict, Any, Set
 from datetime import datetime
@@ -64,7 +69,8 @@ def _escanear_y_prevalidar(
     container: ApplicationContainer,
     archivos_notificados: Set[str],
     tipo: str,
-    carpeta: Path
+    carpeta: Path,
+    local_test: bool = False
 ) -> None:
     """
     Escanea una carpeta y pre-valida archivos nuevos.
@@ -74,10 +80,10 @@ def _escanear_y_prevalidar(
         archivos_notificados: Set de archivos ya notificados (para evitar duplicados)
         tipo: "XML" o "TXT"
         carpeta: Path a la carpeta de entrada
+        local_test: Si True, autoprocesa sin notificar a la API
     """
     try:
         orchestrator = container.orchestrator()
-        
         patron = "*.xml" if tipo == "XML" else "*.txt"
         archivos = sorted(list(carpeta.glob(patron)))
         
@@ -102,20 +108,51 @@ def _escanear_y_prevalidar(
                 "fecha_deteccion": datetime.now().isoformat()
             }
 
-            if _notificar_api(archivo_info):
+            if local_test:
+                logger.info("🔧 MODO PRUEBA LOCAL: Autoprocesando archivo sin notificar a API")
+                exito = orchestrator.process_approved_file(resultado["archivo_id"], archivo, tipo)
                 archivos_notificados.add(archivo_key)
-                logger.info("Archivo en espera de aprobación: %s", archivo.name)
-                time.sleep(0.5)
+                if exito:
+                    logger.info("✅ Procesamiento y comunicación con APIs completado con éxito.")
+                else:
+                    logger.error("❌ Error en el procesamiento y comunicación con APIs.")
             else:
-                logger.info("✗ Error notificando archivo: %s", archivo.name)
-                time.sleep(1)
+                if _notificar_api(archivo_info):
+                    archivos_notificados.add(archivo_key)
+                    logger.info("Archivo en espera de aprobación: %s", archivo.name)
+                    time.sleep(0.5)
+                else:
+                    logger.error("❌ Error notificando archivo a API: %s", archivo.name)
+                    time.sleep(1)
         
     except Exception as e:
         logger.exception("Error escaneando y pre-validando archivos: %s", e)
 
+def _inicializar_direectiorios(config) -> None:
+    """Crea todas las carpetas necesarias si no existen."""
+    rutas_a_crear = [
+        config.paths.carpeta_entrada_xml,
+        config.paths.carpeta_salida_xml,
+        config.paths.carpeta_gestionados_xml,
+        config.paths.carpeta_errores_xml,
+        config.paths.carpeta_entrada_txt,
+        config.paths.carpeta_salida_txt,
+        config.paths.carpeta_gestionados_txt,
+        config.paths.carpeta_errores_txt,
+        config.paths.carpeta_respuesta_txt
+    ]
+    
+    logger.info("Creando carpetas necesarias...")
+    for ruta in rutas_a_crear:
+        if ruta:
+            os.makedirs(ruta, exist_ok=True)
+            logger.info("✓ Carpeta creada: %s", ruta)
+    logger.info("✓ Todas las carpetas necesarias creadas")
+
 def run_watch_manual(
     container: ApplicationContainer,
-    only: str = None
+    only: str = None,
+    local_test: bool = False
 ):
     """
     Escanea carpetas periódicamente y pre-valida archivos nuevos.
@@ -123,9 +160,11 @@ def run_watch_manual(
     Args:
         container: Contenedor de dependencias
         only: Filtro opcional ("xml" o "txt")
+        local_test: Si True, procesa archivos sin notificar a API (modo prueba)
     """
     config = get_config()
     archivos_notificados: Set[str] = set()
+    _inicializar_direectiorios(config)
     
     logger.info("=" * 70)
     logger.info("🔄 MODO MANUAL CON PRE-VALIDACIÓN ACTIVADO")
@@ -147,7 +186,8 @@ def run_watch_manual(
                     container, 
                     archivos_notificados, 
                     "XML", 
-                    carpeta_xml
+                    carpeta_xml,
+                    local_test
                 )
             
             # Escanear TXT
@@ -157,7 +197,8 @@ def run_watch_manual(
                     container, 
                     archivos_notificados, 
                     "TXT", 
-                    carpeta_txt
+                    carpeta_txt,
+                    local_test
                 )
             
             time.sleep(10)
@@ -180,6 +221,7 @@ def main():
     parser.add_argument("--watch", action="store_true", required=True)
     parser.add_argument("--only", choices=["xml", "txt"])
     parser.add_argument("--api-url", type=str, default="http://localhost:8000")
+    parser.add_argument("--local-test", action="store_true", help="Modo prueba: autoprocesa archivos sin notificar a API")
 
     parser.add_argument("--in-xml", type=str)
     parser.add_argument("--out-xml", type=str)
@@ -204,7 +246,7 @@ def main():
     if args.out_txt:
         config.paths.carpeta_salida_txt = Path(args.out_txt)
     
-    run_watch_manual(container, only=args.only)
+    run_watch_manual(container, only=args.only, local_test=args.local_test)
 
 if __name__ == "__main__":
     main()

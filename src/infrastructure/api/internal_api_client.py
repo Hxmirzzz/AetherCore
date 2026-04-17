@@ -1,6 +1,10 @@
 import requests
 import logging
+import urllib3
 from typing import Dict, Any
+
+# Desactivar warnings de certificado SSL
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -11,11 +15,12 @@ class InternalApiClient:
         self.user = config.internal_api.user
         self.password = config.internal_api.password
         self.session = requests.Session()
+        self.session.verify = False
         self.token = None
 
     def authenticate(self):
         """Autentica con la API interna."""
-        url = f"{self.base_url}/api/auth/login"
+        url = f"{self.base_url}/auth/login"
         payload = {
             "UserName": self.user,
             "PassWord": self.password
@@ -41,7 +46,7 @@ class InternalApiClient:
         if not self.token:
             self.authenticate()
         
-        url = f"{self.base_url}/api/AetherCore/log"
+        url = f"{self.base_url}/AetherCore/log"
         try:
             response = self.session.post(url, json=log_data, timeout=15)
 
@@ -49,6 +54,9 @@ class InternalApiClient:
                 logger.warning("Token expired, re-authenticating...")
                 self.authenticate()
                 response = self.session.post(url, json=log_data, timeout=15)
+
+            if response.status_code == 400:
+                logger.error(f"Error 400 desde C#: El DTO no coincide. Detalles: {response.text}")
             
             response.raise_for_status()
             return response.json()
@@ -61,7 +69,7 @@ class InternalApiClient:
         if not self.token:
             self.authenticate()
         
-        url = f"{self.base_url}/api/AetherCore/log/{log_id}"
+        url = f"{self.base_url}/AetherCore/log/{log_id}"
         try:
             response = self.session.put(url, json=status_data, timeout=10)
 
@@ -77,7 +85,7 @@ class InternalApiClient:
         
     def create_service_order(self, order_data: Dict[str, Any]) -> Dict[str, Any]:
         """Crea una orden de servicio en la API interna."""
-        url = f"{self.base_url}/api/AetherCore/service-orders/"
+        url = f"{self.base_url}/AetherCore/service-orders/"
         try:
             response = self.session.post(url, json=order_data, timeout=15)
             response.raise_for_status()
