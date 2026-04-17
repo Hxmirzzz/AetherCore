@@ -15,7 +15,7 @@ from src.infrastructure.config.mapeos import TextosConstantes
 from .xml_file_reader import XmlFileReader
 from .xml_mappers import map_elements, extract_cc_from_filename, build_timestamp_for_response, resolver_codigos_xml
 from .xml_data_transformer import XmlDataTransformer
-from src.application.api.external_api_client import ExternalApiClient
+from src.infrastructure.api.external_api_client import ExternalApiClient
 
 Config = get_config()
 logger = logging.getLogger(__name__)

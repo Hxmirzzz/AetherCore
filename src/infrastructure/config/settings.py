@@ -229,6 +229,8 @@ class AppConfig(BaseSettings):
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
     jwt: JWTConfig = Field(default_factory=JWTConfig)
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
+    external_api: ExternalApiConfig = Field(default_factory=ExternalApiConfig)
+    internal_api: InternalApiConfig = Field(default_factory=InternalApiConfig)
 
     clientes_permitidos: List[str] = Field(default=['45', '46', '47', '48'])
 

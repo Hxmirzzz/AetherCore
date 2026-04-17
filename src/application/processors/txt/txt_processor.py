@@ -88,7 +88,7 @@ class TXTProcessor:
         reader: TxtFileReader | None = None,
         transformer: TxtDataTransformer | None = None,
         paths: PathManager | None = None,
-        external_api: ExternalAPI | None = None,
+        external_api: ExternalApiClient | None = None,
     ):
         self._reader = reader or TxtFileReader()
         self._transformer = transformer or TxtDataTransformer()
@@ -238,7 +238,7 @@ class TXTProcessor:
         except Exception:
             logger.exception("Error manejando TXT fallido")
             
-    def _estado_para_respuesta(self) -> str:
+    def _estado_para_respuesta(self, df: pd.DataFrame = None) -> str:
         return "1"
 
     def _estados_por_codigo(self, df: pd.DataFrame) -> dict[str, str]:

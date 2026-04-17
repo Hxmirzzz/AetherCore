@@ -11,12 +11,11 @@ import logging
 import time
 import requests
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Set
 from datetime import datetime
 
 from src.infrastructure.di.container import ApplicationContainer
 from src.infrastructure.config.settings import get_config
-from src.infrastructure.config.mapeos import ClienteMapeos
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,105 +24,6 @@ logging.basicConfig(
 logger = logging.getLogger("console_app")
 
 API_URL = "http://localhost:8000"
-
-def _convertir_codigo_punto(codigo_bd: str) -> str:
-    """
-    Convierte un código de punto del formato de BD al formato de cliente.
-    
-    Ejemplos:
-        "52-SUC-0075" -> "45-0075"
-        "01-SUC-1234" -> "46-1234"
-    """
-    if not codigo_bd or not isinstance(codigo_bd, str):
-        return ""
-    
-    cc_to_cliente = {v: k for k, v in ClienteMapeos.CLIENTE_TO_CC.items()}
-    codigo_normalizado = codigo_bd.replace("-SUC-", "-")
-    partes = codigo_normalizado.split('-', 1)
-    
-    if len(partes) == 2:
-        prefijo = partes[0]
-        numero = partes[1]
-        
-        if prefijo in cc_to_cliente:
-            codigo_cliente = cc_to_cliente[prefijo]
-            codigo_convertido = f"{codigo_cliente}-{numero}"
-            logger.debug(
-                "Código convertido: '%s' -> '%s' (CC %s -> Cliente %s)",
-                codigo_bd, codigo_convertido, prefijo, codigo_cliente
-            )
-            return codigo_convertido
-        
-        if prefijo in ClienteMapeos.CLIENTE_TO_CC:
-            logger.debug("Código '%s' ya está en formato de cliente", codigo_bd)
-            return codigo_normalizado
-        
-    logger.debug("No se pudo convertir código '%s', usando normalizado '%s'", codigo_bd, codigo_normalizado)
-    return codigo_normalizado
-
-def _build_puntos_info(container: ApplicationContainer) -> Dict[str, Dict[str, Any]]:
-    """Construye diccionario de puntos con códigos en formato de cliente."""
-    try:
-        puntos_repo = container.punto_repository()
-
-        for candidate in ("obtener_diccionario_info", "obtener_todos_como_diccionario", "get_puntos_info_dict"):
-            if hasattr(puntos_repo, candidate) and callable(getattr(puntos_repo, candidate)):
-                logger.info("Usando PuntoRepository.%s() para construir puntos_info", candidate)
-                raw_data = getattr(puntos_repo, candidate)()
-                converted_data = {}
-                for codigo_bd, info in raw_data.items():
-                    codigo_convertido = _convertir_codigo_punto(str(codigo_bd))
-                    converted_data[codigo_convertido] = info
-
-                logger.info("Puntos cargados y convertidos: %d", len(converted_data))
-                return converted_data
-
-        logger.info("PuntoRepository no expone método dict; usando consulta directa (fallback).")
-        conn = container.db_connection_read()
-
-        query = """
-            SELECT
-                p.cod_punto        AS codigo_punto,
-                p.nom_punto        AS nombre_punto,
-                c.cliente          AS nombre_cliente,
-                ciu.ciudad         AS ciudad
-            FROM adm_puntos AS p
-            LEFT JOIN adm_clientes AS c ON c.cod_cliente = p.cod_cliente
-            LEFT JOIN adm_ciudades AS ciu ON ciu.cod_ciudad = p.cod_ciudad
-        """
-        rows = conn.execute_query(query, [])
-        data: Dict[str, Dict[str, Any]] = {}
-        codigos_convertidos = 0
-        
-        for r in rows or []:
-            codigo_bd = str(r[0] or "").strip()
-            if not codigo_bd:
-                continue
-            
-            codigo_convertido = _convertir_codigo_punto(codigo_bd)
-            if codigo_bd != codigo_convertido:
-                codigos_convertidos += 1
-            data[codigo_convertido] = {
-                "nombre_punto": r[1] or "",
-                "nombre_cliente": r[2] or "",
-                "ciudad": r[3] or "",
-            }
-            
-            if codigo_bd != codigo_convertido:
-                data[codigo_bd] = data[codigo_convertido]
-                
-        logger.info(
-            "Puntos cargados: %d únicos, %d convertidos (CC Code -> Cliente)",
-            len({_convertir_codigo_punto(k) for k in data.keys()}),
-            codigos_convertidos
-        )
-        logger.debug("Ejemplos de claves: %s", list(data.keys())[:5])
-        
-        return data
-
-    except Exception:
-        logger.exception("Error construyendo puntos_info")
-        return {}
 
 def _notificar_api(archivo_info: dict) -> bool:
     """
@@ -177,7 +77,6 @@ def _escanear_y_prevalidar(
     """
     try:
         orchestrator = container.orchestrator()
-        conn = container.db_connection_read()
         
         patron = "*.xml" if tipo == "XML" else "*.txt"
         archivos = sorted(list(carpeta.glob(patron)))
@@ -190,7 +89,7 @@ def _escanear_y_prevalidar(
             
             logger.info("Nuevo archivo detectado: %s", archivo.name)
 
-            resultado = orchestrator._prevalidate_file(archivo, tipo, conn)
+            resultado = orchestrator._prevalidate_file(archivo, tipo)
 
             archivo_info = {
                 "archivo_id": resultado["archivo_id"],
@@ -216,7 +115,6 @@ def _escanear_y_prevalidar(
 
 def run_watch_manual(
     container: ApplicationContainer,
-    puntos_info: Dict[str, Dict[str, Any]],
     only: str = None
 ):
     """
@@ -224,7 +122,6 @@ def run_watch_manual(
     
     Args:
         container: Contenedor de dependencias
-        puntos_info: Diccionario de puntos (no se usa en pre-validación)
         only: Filtro opcional ("xml" o "txt")
     """
     config = get_config()
@@ -278,9 +175,6 @@ def main():
     python -m src.presentation.console.console_app --watch
     python -m src.presentation.console.console_app --watch --only xml
     python -m src.presentation.console.console_app --watch --only txt
-    
-    NOTA: El modo --once fue REMOVIDO porque ya no tiene sentido
-          en un flujo manual con aprobación de usuario.
     """
     parser = argparse.ArgumentParser(description="AetherCore Runner")
     parser.add_argument("--watch", action="store_true", required=True)
@@ -309,17 +203,8 @@ def main():
         config.paths.carpeta_entrada_txt = Path(args.in_txt)
     if args.out_txt:
         config.paths.carpeta_salida_txt = Path(args.out_txt)
-
-    puntos_info = _build_puntos_info(container)
-
-    try:
-        run_watch_manual(container, puntos_info, only=args.only)
-    finally:
-        try:
-            container.close_all_connections()
-            logger.info("Conexiones cerradas correctamente")
-        except Exception:
-            logger.exception("Error cerrando conexión")
+    
+    run_watch_manual(container, only=args.only)
 
 if __name__ == "__main__":
     main()
