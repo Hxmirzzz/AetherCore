@@ -41,7 +41,7 @@ class InternalApiClient:
         if not self.token:
             self.authenticate()
         
-        url = f"{self.base_url}/api/aether/process-upload/"
+        url = f"{self.base_url}/api/AetherCore/log"
         try:
             response = self.session.post(url, json=log_data, timeout=15)
 
@@ -61,7 +61,7 @@ class InternalApiClient:
         if not self.token:
             self.authenticate()
         
-        url = f"{self.base_url}/api/aether/log/{log_id}"
+        url = f"{self.base_url}/api/AetherCore/log/{log_id}"
         try:
             response = self.session.put(url, json=status_data, timeout=10)
 
@@ -77,7 +77,7 @@ class InternalApiClient:
         
     def create_service_order(self, order_data: Dict[str, Any]) -> Dict[str, Any]:
         """Crea una orden de servicio en la API interna."""
-        url = f"{self.base_url}/api/v1/service-orders/"
+        url = f"{self.base_url}/api/AetherCore/service-orders/"
         try:
             response = self.session.post(url, json=order_data, timeout=15)
             response.raise_for_status()

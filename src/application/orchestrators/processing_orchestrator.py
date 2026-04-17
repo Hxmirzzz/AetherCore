@@ -280,54 +280,6 @@ class ProcessingOrchestrator:
                 "preview": {}
             }
 
-    def process_approved_file(self, archivo_id: str, ruta: Path, tipo: str) -> bool:
-        """
-        Procesa archivo que fue APROBADO por el usuario.
-        
-        Args:
-            archivo_id: UUID del archivo (para logging/tracking)
-            ruta: Path al archivo físico
-            tipo: "XML" o "TXT"
-        
-        Returns:
-            True si procesó exitosamente, False si falló
-        """
-        try:
-            logger.info(f"Procesando archivo aprobado: {ruta.name} (ID: {archivo_id})")
-            
-            if tipo.upper() == "XML":
-                ruta_excel = self._paths.output_xml_dir() / f"{ruta.stem}.xlsx"
-                exito = self._xml.procesar_archivo_xml(ruta, ruta_excel)
-                
-                if exito:
-                    logger.info(f"Archivo XML {ruta.name} procesado exitosamente")
-                else:
-                    logger.error(f"Error procesando archivo XML {ruta.name}")
-                
-                return exito
-            
-            elif tipo.upper() == "TXT":
-                if self._txt is None:
-                    logger.error("TXTProcessor no disponible")
-                    return False
-                
-                exito = self._txt.procesar_archivo_txt(ruta)
-                
-                if exito:
-                    logger.info(f"Archivo TXT {ruta.name} procesado exitosamente")
-                else:
-                    logger.error(f"Error procesando archivo TXT {ruta.name}")
-                
-                return exito
-            
-            else:
-                logger.error(f"Tipo de archivo desconocido: {tipo}")
-                return False
-                
-        except Exception as e:
-            logger.exception(f"Error procesando archivo aprobado {archivo_id}")
-            return False
-
     def reject_file(self, archivo_id: str, ruta: Path, tipo: str, motivo: str = None) -> bool:
         """
         Mueve archivo RECHAZADO a carpeta de errores.
