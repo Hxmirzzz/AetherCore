@@ -15,17 +15,17 @@ class ExternalApiClient:
         self.token = None
     
     def authenticate(self):
-        """Obtiene el token de acceso desde /api/auth/login."""
-        url = f"{self.base_url}/auth/login"
+        """Obtiene el token de acceso desde /auth/login."""
+        url = f"{self.base_url}/auth/login/"
         payload = {
-            "username": self.user,
+            "login": self.user,
             "password": self.password
         }
         try:
             response = self.session.post(url, json=payload, timeout=10)
             response.raise_for_status()
             data = response.json()
-            self.token = data.get("token") or data.get("access_token")
+            self.token = data.get("token") or data.get("access")
 
             if self.token:
                 self.session.headers.update({"Authorization": f"Bearer {self.token}"})
@@ -74,21 +74,26 @@ class ExternalApiClient:
             return {"status": "error", "message": str(e), "details": error_data}
 
     def get_clients_mapping(self) -> Dict[str, Any]:
-        """Descarga los clientes y devuelve un diccionario { "NIT": "client_code" }."""
+        """Descarga los clientes y devuelve un diccionario mapeando el client_code con el nombre."""
         if not self.token:
             self.authenticate()
 
-        url = f"{self.base_url}/api/v1/clients/"
+        url = f"{self.base_url}/clients/"
         try:
             response = self.session.get(url, timeout=15)
             response.raise_for_status()
             clients_data = response.json()
+            
             mapping = {}
             for client in clients_data:
                 nit = str(client.get("tax_identification", "")).strip()
                 code = client.get("client_code", "")
+                name = client.get("commercial_name", "") or client.get("business_name", "")
                 if nit and code:
-                    mapping[nit] = code
+                    mapping[nit] = {
+                        "code": code,
+                        "name": name
+                    }
             return mapping
         except Exception as e:
             logger.error(f"Unexpected error getting clients mapping: {e}")

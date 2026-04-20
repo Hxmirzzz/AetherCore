@@ -15,6 +15,7 @@ import threading
 import uuid
 import os
 import shutil
+import json
 from datetime import datetime
 import xml.etree.ElementTree as ET
 
@@ -72,11 +73,17 @@ class ProcessingOrchestrator:
             log_id = respuesta_interna.get("id")
             
             if not log_id:
-                logger.error("No se recibió un ID válido desde la base de datos local.")
+                logger.error("No se recibió un ID válido de la API interna.")
                 return False
         except Exception as e:
-            logger.error("Error al registrar evento en DB local: %s", e)
+            logger.error("Error al registrar evento local: %s", e)
             return False
+
+        logger.info("=" * 60)
+        logger.info("📦 PREVIEW DEL JSON QUE SE ENVIARÁ A LA API EXTERNA:")
+        payload_view = json.dumps(payload_servicios, indent=4, ensure_ascii=False)
+        logger.info(f"\n{payload_view}\n")
+        logger.info("=" * 60)
         
         try:
             respuesta_externa = None

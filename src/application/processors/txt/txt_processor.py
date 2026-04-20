@@ -138,18 +138,23 @@ class TXTProcessor:
 
                 if df2 is not None and not df2.empty:
                     clientes_dict = self._external_api.get_clients_mapping() if self._external_api else {}
-                    fecha_programacion = date.today().strftime("%Y-%m-%d")
-                    if df1 is not None and not df1.empty and 'FECHA GENERACION' in df1.columns:
-                        fecha_str = str(df1['FECHA GENERACION'].iloc[0]).strip()
-                        if fecha_str:
-                            try:
-                                fecha_programacion = datetime.strptime(fecha_str, "%Y%m%d").strftime("%Y-%m-%d")
-                            except:
-                                pass
+                    fecha_programacion = datetime.now().strftime("%Y-%m-%d")
+                    nit_client = ""
+                    if df1 is not None and not df1.empty:
+                        if 'FECHA GENERACION' in df1.columns:
+                            fecha_str = str(df1['FECHA GENERACION'].iloc[0]).strip()
+                            if fecha_str:
+                                try:
+                                    fecha_programacion = datetime.strptime(fecha_str, "%Y%m%d").strftime("%Y-%m-%d")
+                                except:
+                                    pass
+                        if 'NIT CLIENTE' in df1.columns:
+                            nit_client = str(df1['NIT CLIENTE'].iloc[0]).strip()
                     
                     for _, row in df2.iterrows():
-                        nit_txt = str(row.get("NIT CLIENTE", "")).strip()
-                        client_code = clientes_dict.get(nit_txt, "") or extract_cc_from_filename(ruta_txt.name)
+                        info_client = clientes_dict.get(nit_client, {})
+                        client_code = info_client.get("code", "") or extract_cc_from_filename(ruta_txt.name)
+                        bank_name = info_client.get("name", "")
 
                         punto_limpio = str(row.get("CODIGO PUNTO", "")).strip()
                         atm_code = f"{client_code}-{punto_limpio}" if punto_limpio else ""
@@ -161,6 +166,8 @@ class TXTProcessor:
                             codigo_servicio = 0
                         service_type_code = ServicioCatalogo.obtener_codigo_api(codigo_servicio, default="PA")
                         
+                        valor_total = str(row.get("TOTAL_VALOR", "0")).replace("$", "").replace(".", "").replace(",", "").strip()
+                        
                         servicio = {
                             "client_code": client_code,
                             "service_type": service_type_code,
@@ -169,10 +176,10 @@ class TXTProcessor:
                             "service_date": fecha_programacion,
                             "time_window_start": "08:00:00.000Z",
                             "time_window_end": "18:00:00.000Z",
-                            "declared_amount": str(row.get("VALOR", "")).strip(),
+                            "declared_amount": valor_total,
                             "currency": "COP",
                             "observations": str(row.get("OBSERVACIONES", "")).strip(),
-                            "bank_name": "",
+                            "bank_name": bank_name,
                             "bank_account_number": "",
                             "bank_account_holder": "",
                             "requested_denominations": []
@@ -234,7 +241,7 @@ class TXTProcessor:
             TXTResponseGenerator.generar_respuesta(ids_dummy, ruta_txt.name, self._paths.respuestas_txt_dir(), estado=estado_respuesta)
             destino = Config.paths.carpeta_errores_txt / ruta_txt.name
             os.makedirs(Config.paths.carpeta_errores_txt, exist_ok=True)
-            os.rename(ruta_txt, destino)
+            os.replace(ruta_txt, destino)
         except Exception:
             logger.exception("Error manejando TXT fallido")
             
