@@ -167,6 +167,28 @@ class TXTProcessor:
                         service_type_code = ServicioCatalogo.obtener_codigo_api(codigo_servicio, default="PA")
                         
                         valor_total = str(row.get("TOTAL_VALOR", "0")).replace("$", "").replace(".", "").replace(",", "").strip()
+
+                        denominations_array = []
+                        for col in df2.columns:
+                            if isinstance(col, str) and col.startswith("GAV") and "DENOMINACION" in col:
+                                cant_col = col.replace("DENOMINACION", "CANTIDAD")
+
+                                if cant_col in df2.columns:
+                                    denom_str = str(row.get(col, "0")).replace("$", "").replace(".", "").replace(",", "").strip()
+                                    cant_str = str(row.get(cant_col, "0")).replace("$", "").replace(".", "").replace(",", "").strip()
+
+                                    try:
+                                        denom_int = int(denom_str)
+                                        cant_int = int(cant_str)
+
+                                        if denom_int > 0 and cant_int > 0:
+                                            denominations_array.append({
+                                                "denomination_value": f"{denom_int}.00",
+                                                "quality": "",
+                                                "quantity": cant_int
+                                            })
+                                    except ValueError:
+                                        pass
                         
                         servicio = {
                             "client_code": client_code,
@@ -182,7 +204,7 @@ class TXTProcessor:
                             "bank_name": bank_name,
                             "bank_account_number": "",
                             "bank_account_holder": "",
-                            "requested_denominations": []
+                            "requested_denominations": denominations_array
                         }
                         payload_servicios.append(servicio)
 
@@ -220,7 +242,7 @@ class TXTProcessor:
             try:
                 destino = self._paths.gestionados_txt_dir() / ruta_txt.name
                 os.makedirs(self._paths.gestionados_txt_dir(), exist_ok=True)
-                os.rename(ruta_txt, destino)
+                os.replace(ruta_txt, destino)
                 logger.info("Archivo TXT movido a gestionados: %s", destino)
             except Exception:
                 logger.exception("Error moviendo TXT a gestionados (se conserva el éxito del procesamiento)")
