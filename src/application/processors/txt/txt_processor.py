@@ -120,7 +120,6 @@ class TXTProcessor:
             payload_servicios = []
 
             if es_por_tipos:
-    
                 df1, df2, df3 = parse_tipo_records(
                     raw_lines,
                     dict_ciudades={},
@@ -131,31 +130,36 @@ class TXTProcessor:
                     dict_clientes={}
                 )
 
+                clientes_dict = self._external_api.get_clients_mapping() if self._external_api else {}
+                fecha_programacion = datetime.now().strftime("%Y-%m-%d")
+                nit_client = ""
+
+                if df1 is not None and not df1.empty:
+                    if 'FECHA GENERACION' in df1.columns:
+                        fecha_str = str(df1['FECHA GENERACION'].iloc[0]).strip()
+                        if fecha_str:
+                            try:
+                                fecha_programacion = datetime.strptime(fecha_str, "%Y%m%d").strftime("%Y-%m-%d")
+                            except:
+                                pass
+                    if 'NIT CLIENTE' in df1.columns:
+                        nit_client = str(df1['NIT CLIENTE'].iloc[0]).strip()
+
+                info_client = clientes_dict.get(nit_client, {})
+                client_code = info_client.get("code", "") or extract_cc_from_filename(ruta_txt.name)
+                bank_name = info_client.get("name", "")
+
+                if df2 is not None and not df2.empty:
+                    if bank_name:
+                        df2['CLIENTE'] = bank_name
+
                 ok_excel = self._transformer.write_excel_consolidated(out_xlsx, df1, df2, df3, hoja_titulo="Consolidado")
                 if not ok_excel:
                     self._manejar_txt_fallido(ruta_txt, "2", "Error escribiendo Excel consolidado")
                     return False, []
 
                 if df2 is not None and not df2.empty:
-                    clientes_dict = self._external_api.get_clients_mapping() if self._external_api else {}
-                    fecha_programacion = datetime.now().strftime("%Y-%m-%d")
-                    nit_client = ""
-                    if df1 is not None and not df1.empty:
-                        if 'FECHA GENERACION' in df1.columns:
-                            fecha_str = str(df1['FECHA GENERACION'].iloc[0]).strip()
-                            if fecha_str:
-                                try:
-                                    fecha_programacion = datetime.strptime(fecha_str, "%Y%m%d").strftime("%Y-%m-%d")
-                                except:
-                                    pass
-                        if 'NIT CLIENTE' in df1.columns:
-                            nit_client = str(df1['NIT CLIENTE'].iloc[0]).strip()
-                    
                     for _, row in df2.iterrows():
-                        info_client = clientes_dict.get(nit_client, {})
-                        client_code = info_client.get("code", "") or extract_cc_from_filename(ruta_txt.name)
-                        bank_name = info_client.get("name", "")
-
                         punto_limpio = str(row.get("CODIGO PUNTO", "")).strip()
                         atm_code = f"{client_code}-{punto_limpio}" if punto_limpio else ""
 

@@ -4,14 +4,14 @@ Mantiene rutas de salida, nombres y formato de respuesta idénticos al código o
 """
 from __future__ import annotations
 from pathlib import Path
+from pydoc import cli
 from typing import Dict, Any, List, Tuple
 import os
 import logging
-import pandas as pd
 from datetime import datetime
 
 from src.infrastructure.config.settings import get_config
-from src.infrastructure.config.mapeos import TextosConstantes
+from src.infrastructure.config.mapeos import TextosConstantes, ClienteMapeos
 from .xml_file_reader import XmlFileReader
 from .xml_mappers import map_elements, extract_cc_from_filename, build_timestamp_for_response, resolver_codigos_xml
 from .xml_data_transformer import XmlDataTransformer
@@ -103,10 +103,28 @@ class XMLProcessor:
 
             payload_servicios = []
 
+            clients_dict = self._external_api.get_clients_mapping() if self._external_api else {}
+
+            name_for_internal_code = {}
+            for nit, info in clients_dict.items():
+                raw_code = info.get("code")
+                if raw_code:
+                    try:
+                        norm_code = str(int(str(raw_code).strip()))
+                    except (ValueError, TypeError):
+                        norm_code = str(raw_code).strip()
+                    name_for_internal_code[norm_code] = info.get("name", "")
+
+            logger.info("Diccionario de nombres por código interno: %s", name_for_internal_code)
+
             def build_payload(filas: List[Dict[str, Any]], tipo_servicio_api: str):
                 for fila in filas:
                     codigo_raw = str(fila.get("CODIGO", ""))
-                    client_code, punto_limpio, es_sucursal = resolver_codigos_xml(codigo_raw, ruta_xml.name)
+                    client_code_raw, punto_limpio, es_sucursal = resolver_codigos_xml(codigo_raw, ruta_xml.name)
+                    try:
+                        client_code = str(int(str(client_code_raw).strip()))
+                    except ValueError:
+                        client_code = str(client_code_raw).strip()
                     codigo_concatenado = f"{client_code}-{punto_limpio}" if punto_limpio else ""
 
                     point_code = codigo_concatenado if es_sucursal else ""
@@ -120,6 +138,7 @@ class XMLProcessor:
 
                     valor_general = str(fila.get("GENERAL", "0")).replace("$", "").replace(".", "").replace(",", "")
                     rango = str(fila.get("RANGO", "")).strip()
+                    bank_name = name_for_internal_code.get(client_code, "Cliente Desconocido")
 
                     servicio = {
                         "client_code": client_code,
@@ -132,10 +151,10 @@ class XMLProcessor:
                         "declared_amount": valor_general,
                         "currency": "COP",
                         "observations": "Procesado desde XML",
-                        "bank_name": "",
+                        "bank_name": bank_name,
                         "bank_account_number": "",
                         "bank_account_holder": "",
-                        "requested_denominations": []
+                        "requested_denominations": fila.get("RAW_DENOMINATIONS", [])
                     }
                     payload_servicios.append(servicio)
 

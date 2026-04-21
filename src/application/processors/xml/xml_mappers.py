@@ -114,15 +114,28 @@ def map_elements(elements: List[ET.Element], tipo_servicio: str) -> List[Dict[st
 
         total = 0
         denoms_dict = {k: 0 for k in DenominacionesConfig.DENOMINACIONES}
+        requested_denominations = []
+
         for denom_element in item.findall('.//denom'):
             code = denom_element.attrib.get('code', '')
             try:
                 amount = float(denom_element.attrib.get('amount', '0'))
+                count = int(denom_element.attrib.get('count', '0'))
             except ValueError:
                 amount = 0
+                count = 0
             if code in denoms_dict:
                 denoms_dict[code] = amount
                 total += amount
+
+            if amount > 0 and count > 0:
+                clean_value = ''.join(filter(str.isdigit, code))
+                if clean_value:
+                    requested_denominations.append({
+                        "denomination_value": f"{clean_value}.00",
+                        "quality": "",
+                        "quantity": count
+                    })
 
         order_type_val = item.attrib.get('orderType', '0')
         tipo_orden = (
@@ -144,6 +157,7 @@ def map_elements(elements: List[ET.Element], tipo_servicio: str) -> List[Dict[st
             'TIPO DE SERVICIO': tipo_orden,
             'TRANSPORTADORA': transportadora,
             'CIUDAD': '',
+            'RAW_DENOMINATIONS': requested_denominations
         }
         for denom_key in DenominacionesConfig.DENOMINACIONES:
             col_name = _denom_col(denom_key)

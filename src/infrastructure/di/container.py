@@ -48,7 +48,8 @@ class ApplicationContainer:
         """Factory principal para el caso de uso XML → Excel + Respuesta."""
         return XMLProcessor(
             reader=XmlFileReader(),
-            transformer=XmlDataTransformer()
+            transformer=XmlDataTransformer(),
+            external_api=self.external_api_client()
         )
     
     def txt_processor(self) -> TXTProcessor:

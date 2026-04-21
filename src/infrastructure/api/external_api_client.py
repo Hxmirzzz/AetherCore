@@ -1,6 +1,10 @@
 import requests
 import logging
 from typing import List, Dict, Any
+import urllib3
+
+# Desactivar warnings de certificado SSL
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +16,7 @@ class ExternalApiClient:
         self.user = config.external_api.user
         self.password = config.external_api.password
         self.session = requests.Session()
+        self.session.verify = False  # Desactivar verificación de certificado SSL
         self.token = None
     
     def authenticate(self):
