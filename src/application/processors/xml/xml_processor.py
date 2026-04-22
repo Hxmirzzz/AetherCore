@@ -26,7 +26,7 @@ class XMLResponseGenerator:
     @staticmethod
     def generar_respuesta(lista_ids: List[str], nombre_archivo_original: str, estado: str, cc_code_from_filename_passed: str) -> bool:
         """
-        Genera archivo de respuesta con formato: TR2_VATCO_CCCODEAAMMDDHHMM.txt
+        Genera archivo de respuesta con formato: TR2_<COMPANY>_CCCODEAAMMDDHHMM.txt
         
         Args:
             lista_ids: Lista de IDs de órdenes/remesas
@@ -43,7 +43,7 @@ class XMLResponseGenerator:
             
             os.makedirs(Config.paths.carpeta_respuesta_txt, exist_ok=True)
             ts = build_timestamp_for_response(nombre_archivo_original)
-            nombre_respuesta = f"TR2_VATCO_{cc_code_from_filename_passed}{ts}.txt"
+            nombre_respuesta = f"TR2_{Config.paths.company_code}_{cc_code_from_filename_passed}{ts}.txt"
             ruta_respuesta = Config.paths.carpeta_respuesta_txt / nombre_respuesta
             with open(ruta_respuesta, 'w', encoding='utf-8') as f:
                 for id_val in sorted(lista_ids):

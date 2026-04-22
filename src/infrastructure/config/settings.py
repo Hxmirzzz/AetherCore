@@ -15,6 +15,9 @@ class PathConfig(BaseSettings):
     """
     Configuración de rutas/carpetas de la aplicación.
     """
+    # Identificador del sistema/empresa
+    company_code: str = Field(default='SYSTEM', alias='COMPANY_CODE')
+    
     # TXT
     carpeta_entrada_txt: Path = Field(..., alias='CARPETA_ENTRADA_TXT')
     carpeta_salida_txt: Path = Field(..., alias='CARPETA_SALIDA_TXT')
@@ -64,15 +67,15 @@ class PathConfig(BaseSettings):
 
     @property
     def log_file_unificado(self) -> Path:
-        return self.logs_dir / 'VATCO-UNIFICADO-LOG.txt'
+        return self.logs_dir / f'{self.company_code}-UNIFICADO-LOG.txt'
 
     @property
     def log_file_txt(self) -> Path:
-        return self.logs_dir / 'VATCO-TXT2XLS-LOG.txt'
+        return self.logs_dir / f'{self.company_code}-TXT2XLS-LOG.txt'
 
     @property
     def log_file_xml(self) -> Path:
-        return self.logs_dir / 'VATCO-XML2XLS-LOG.txt'
+        return self.logs_dir / f'{self.company_code}-XML2XLS-LOG.txt'
 
 
 class MonitoringConfig(BaseSettings):

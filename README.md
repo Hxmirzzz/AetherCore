@@ -54,6 +54,11 @@ AetherCore/
 
 ```env
 # ============================================
+# IDENTIFICADOR DEL SISTEMA
+# ============================================
+COMPANY_CODE=SYSTEM
+
+# ============================================
 # RUTAS DE PROCESAMIENTO
 # ============================================
 CARPETA_ENTRADA_TXT=C:\SFTP_VGL\AVAL\ENTRADAS\SOLICITUDES SERVICIOS ATM
@@ -176,7 +181,7 @@ python -m src.presentation.console.console_app --watch --only txt
 ## Formato de Archivos Soportados
 
 ### XML (ICOREX)
-**Nombre:** `ICOREX_C4U-CC-Vatco_XXXX_YYYYMMDD_HHMMSS.xml`
+**Nombre:** `ICOREX_C4U-CC-SYSTEM_XXXX_YYYYMMDD_HHMMSS.xml`
 
 Contiene órdenes y remesas con:
 - Información de entrega (fecha, rango horario)
@@ -185,7 +190,7 @@ Contiene órdenes y remesas con:
 
 **Salida:**
 - Excel con hojas "Ordenes" y "Remesas"
-- Archivo de respuesta `TR2_VATCO_CCAAMMDDHHMM.txt`
+- Archivo de respuesta `TR2_<COMPANY>_CCAAMMDDHHMM.txt`
 
 ### TXT (Solicitudes ATM)
 **Nombre:** `VTAAVNAL...` o similar
@@ -196,7 +201,7 @@ Registros de tipo:
 
 **Salida:**
 - Excel formateado
-- Archivo de respuesta `TR2_VATCO_CCAAMMDDHHMM.txt`
+- Archivo de respuesta `TR2_<COMPANY>_CCAAMMDDHHMM.txt`
 
 ## Dependencias Principales
 
@@ -239,7 +244,7 @@ pywin32         # Servicio Windows (opcional)
 
 ## Logs
 
-Los logs se guardan en `logs/VATCO-UNIFICADO-LOG.txt` con formato:
+Los logs se guardan en `logs/<COMPANY_CODE>-UNIFICADO-LOG.txt` (ej: `SYSTEM-UNIFICADO-LOG.txt`) con formato:
 ```
 2026-04-22 10:30:15 [INFO] Archivo detectado: ICOREX_C4U-52...
 2026-04-22 10:30:16 [INFO] Excel generado: Confirmacion_TR/...

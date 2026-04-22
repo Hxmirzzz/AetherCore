@@ -35,7 +35,7 @@ class TXTResponseGenerator:
                 cc = cc_override.strip()
             else:
                 cc = extract_cc_from_filename(nombre_archivo_original)
-            nombre = f"TR2_VATCO_{cc}{ts}.txt"
+            nombre = f"TR2_{Config.paths.company_code}_{cc}{ts}.txt"
             ruta = carpeta_respuesta / nombre
             with open(ruta, "w", encoding="utf-8") as f:
                 for i in sorted(ids):
@@ -69,7 +69,7 @@ class TXTResponseGenerator:
             else:
                 cc = extract_cc_from_filename(nombre_archivo_original)
 
-            nombre = f"TR2_VATCO_{cc}{ts}.txt"
+            nombre = f"TR2_{Config.paths.company_code}_{cc}{ts}.txt"
             ruta = carpeta_respuesta / nombre
 
             with open(ruta, "w", encoding="utf-8") as f:
