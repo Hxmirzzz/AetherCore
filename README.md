@@ -12,7 +12,7 @@ AetherCore es un sistema de procesamiento automatizado de archivos TXT/XML orien
 
 ## Características Principales
 
-- **Procesamiento Dual:** Soporte simultáneo para archivos XML (ICOREX) y TXT (Solicitudes ATM)
+- **Procesamiento Dual:** Soporte simultáneo para archivos XML y TXT
 - **API REST con JWT:** Backend FastAPI con autenticación segura y WebSockets
 - **Integración CashOS:** Comunicación directa con API externa para creación de órdenes
 - **Frontend React:** Dashboard interactivo para aprobación de archivos en tiempo real
@@ -67,10 +67,10 @@ CARPETA_RESPUESTA_TXT=C:\SFTP_VGL\AVAL\SALIDAS\ATH\Confirmacion_TR
 CARPETA_ERRORES_TXT=C:\SFTP_VGL\AVAL\ENTRADAS\SOLICITUDES SERVICIOS ATM\ERRORES
 CARPETA_GESTIONADOS_TXT=C:\SFTP_VGL\AVAL\ENTRADAS\SOLICITUDES SERVICIOS ATM\GESTIONADOS
 
-CARPETA_ENTRADA_XML=C:\SFTP_VGL\AVAL\ENTRADAS\ICOREX
+CARPETA_ENTRADA_XML=C:\SFTP_VGL\AVAL\ENTRADAS\XML
 CARPETA_SALIDA_XML=C:\SFTP_VGL\AVAL\SALIDAS\ATH\Confirmacion_TR
-CARPETA_GESTIONADOS_XML=C:\SFTP_VGL\AVAL\ENTRADAS\ICOREX\GESTIONADOS
-CARPETA_ERRORES_XML=C:\SFTP_VGL\AVAL\ENTRADAS\ICOREX\ERRORES
+CARPETA_GESTIONADOS_XML=C:\SFTP_VGL\AVAL\ENTRADAS\XML\GESTIONADOS
+CARPETA_ERRORES_XML=C:\SFTP_VGL\AVAL\ENTRADAS\XML\ERRORES
 
 # ============================================
 # API EXTERNA (CashOS)
@@ -180,8 +180,8 @@ python -m src.presentation.console.console_app --watch --only txt
 
 ## Formato de Archivos Soportados
 
-### XML (ICOREX)
-**Nombre:** `ICOREX_C4U-CC-SYSTEM_XXXX_YYYYMMDD_HHMMSS.xml`
+### XML
+**Nombre:** `CC-SYSTEM_XXXX_YYYYMMDD_HHMMSS.xml`
 
 Contiene órdenes y remesas con:
 - Información de entrega (fecha, rango horario)
@@ -246,7 +246,7 @@ pywin32         # Servicio Windows (opcional)
 
 Los logs se guardan en `logs/<COMPANY_CODE>-UNIFICADO-LOG.txt` (ej: `SYSTEM-UNIFICADO-LOG.txt`) con formato:
 ```
-2026-04-22 10:30:15 [INFO] Archivo detectado: ICOREX_C4U-52...
+2026-04-22 10:30:15 [INFO] Archivo detectado: C4U-52...
 2026-04-22 10:30:16 [INFO] Excel generado: Confirmacion_TR/...
 2026-04-22 10:30:17 [INFO] Orden creada en CashOS: ID 12345
 ```

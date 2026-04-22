@@ -170,7 +170,6 @@ def map_elements(elements: List[ET.Element], tipo_servicio: str) -> List[Dict[st
 def extract_cc_from_filename(xml_name: str) -> str:
     """
     Extrae el CC Code del nombre del archivo XML.
-    Formato esperado: ICOREX_C4U-XX-System_...xml
     donde XX son dos dígitos.
     
     Returns:
