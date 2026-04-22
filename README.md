@@ -1,87 +1,258 @@
-# AetherCore - Procesamiento de Archivos y Dashboard Interactivo
+# AetherCore - Procesamiento de Archivos y API REST
 
 ## Descripción General
 
-AetherCore es una aplicación integral para el procesamiento automatizado de archivos (TXT/XML) y la visualización de datos en tiempo real. Combina un backend robusto en Python, construido con **Arquitectura Limpia**, con un frontend moderno en React.
+AetherCore es un sistema de procesamiento automatizado de archivos TXT/XML orientado a la integración con APIs externas. El sistema:
 
-El sistema transforma archivos de entrada en formatos estructurados (Excel), genera respuestas de estado, inserta los datos en SQL Server y presenta la información en un dashboard interactivo.
+1. **Monitorea carpetas** en busca de archivos XML y TXT
+2. **Pre-valida y notifica** mediante API REST con autenticación JWT
+3. **Genera archivos Excel** con formato estructurado
+4. **Envía datos a APIs externas** (CashOS) para crear órdenes de servicio
+5. **Gestiona respuestas** de confirmación (archivos TR2)
 
 ## Características Principales
 
-- **Arquitectura Limpia (Backend):** Separación clara de responsabilidades en capas (dominio, aplicación, infraestructura, presentación) que garantiza un bajo acoplamiento y alta cohesión.
-- **Procesamiento de Archivos:** Soporte para archivos TXT y XML, con mapeo de datos y generación de reportes en Excel.
-- **Integración con SQL Server:** Inserción de datos mediante `stored procedures`, asegurando transacciones atómicas (commit/rollback).
-- **Frontend Interactivo (React):** Un dashboard en tiempo real para monitorear el estado de los archivos, ver registros de actividad y gestionar el procesamiento.
-- **Comunicación en Tiempo Real:** Uso de WebSockets para notificaciones instantáneas entre el backend y el frontend.
-- **Manejo de Errores:** Sistema de logging centralizado y manejo robusto de excepciones.
-- **Instalación como Servicio de Windows:** Script automatizado para instalar el backend como un servicio de Windows, garantizando su ejecución continua.
+- **Procesamiento Dual:** Soporte simultáneo para archivos XML (ICOREX) y TXT (Solicitudes ATM)
+- **API REST con JWT:** Backend FastAPI con autenticación segura y WebSockets
+- **Integración CashOS:** Comunicación directa con API externa para creación de órdenes
+- **Frontend React:** Dashboard interactivo para aprobación de archivos en tiempo real
+- **Modo Local/Prueba:** Ejecución sin dependencia del frontend para testing
+- **Arquitectura Modular:** Separación clara entre procesadores, orquestadores y clientes API
 
 ## Estructura del Proyecto
 
 ```
 AetherCore/
 ├── src/
-│   ├── application/           # Lógica de negocio y casos de uso
-│   ├── domain/                # Entidades y reglas del dominio
-│   ├── infrastructure/        # Acceso a datos, sistemas externos
-│   └── presentation/          # UI (frontend) y API (backend)
-│       ├── api/               # API REST y WebSockets (FastAPI)
-│       ├── console/           # Aplicación de consola (CLI)
-│       └── frontend/          # Aplicación en React
-├── config/                    # Archivos de configuración YAML
+│   ├── application/
+│   │   ├── orchestrators/     # Orquestador principal de procesamiento
+│   │   └── processors/        # Procesadores XML y TXT
+│   │       ├── xml/           # XML → Excel + API
+│   │       └── txt/           # TXT → Excel + API
+│   ├── domain/
+│   │   ├── entities/          # Catálogos y entidades
+│   │   └── value_objects/     # Objetos de valor
+│   ├── infrastructure/
+│   │   ├── api/               # Clientes API (External/Internal)
+│   │   ├── config/            # Configuración Pydantic
+│   │   ├── di/                # Contenedor de dependencias
+│   │   ├── excel/             # Excel styler
+│   │   └── file_system/       # Gestión de archivos
+│   └── presentation/
+│       ├── api/               # API REST (FastAPI)
+│       ├── console/           # CLI (modo --watch)
+│       └── frontend/          # React + Vite
 ├── logs/                      # Logs de la aplicación
-├── .env.example               # Plantilla de variables de entorno
-├── requirements.txt           # Dependencias de Python
-└── install_windows_service.bat # Script de instalación
+├── .env                       # Variables de entorno
+├── .env.example               # Plantilla de variables
+└── requirements.txt           # Dependencias Python
 ```
 
-## Configuración y Uso
+## Configuración
 
-### Backend (Python)
+### 1. Variables de Entorno (.env)
 
-1.  **Entorno Virtual:**
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # Linux/macOS
-    .\venv\Scripts\activate    # Windows
-    ```
+```env
+# ============================================
+# RUTAS DE PROCESAMIENTO
+# ============================================
+CARPETA_ENTRADA_TXT=C:\SFTP_VGL\AVAL\ENTRADAS\SOLICITUDES SERVICIOS ATM
+CARPETA_SALIDA_TXT=C:\SFTP_VGL\AVAL\SALIDAS\ATH\Confirmacion_TR
+CARPETA_RESPUESTA_TXT=C:\SFTP_VGL\AVAL\SALIDAS\ATH\Confirmacion_TR
+CARPETA_ERRORES_TXT=C:\SFTP_VGL\AVAL\ENTRADAS\SOLICITUDES SERVICIOS ATM\ERRORES
+CARPETA_GESTIONADOS_TXT=C:\SFTP_VGL\AVAL\ENTRADAS\SOLICITUDES SERVICIOS ATM\GESTIONADOS
 
-2.  **Instalar Dependencias:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+CARPETA_ENTRADA_XML=C:\SFTP_VGL\AVAL\ENTRADAS\ICOREX
+CARPETA_SALIDA_XML=C:\SFTP_VGL\AVAL\SALIDAS\ATH\Confirmacion_TR
+CARPETA_GESTIONADOS_XML=C:\SFTP_VGL\AVAL\ENTRADAS\ICOREX\GESTIONADOS
+CARPETA_ERRORES_XML=C:\SFTP_VGL\AVAL\ENTRADAS\ICOREX\ERRORES
 
-3.  **Variables de Entorno:**
-    - Copie `.env.example` a `.env` y configure las credenciales de la base de datos y las rutas de las carpetas.
+# ============================================
+# API EXTERNA (CashOS)
+# ============================================
+EXTERNAL_API_URL=https://cashos-test.wbhpro.com/api/v1
+EXTERNAL_API_USER=tu_usuario
+EXTERNAL_API_PASSWORD=tu_password
 
-4.  **Ejecutar la Aplicación:**
-    - **Modo de Monitoreo (Servicio):**
-      ```bash
-      python -m src.presentation.console.console_app --watch
-      ```
-    - **API y WebSockets:**
-      ```bash
-      uvicorn src.presentation.api.main:app --reload
-      ```
+# ============================================
+# API INTERNA (Notificaciones propias)
+# ============================================
+INTERNAL_API_URL=http://localhost:8000
+INTERNAL_API_USER=admin
+INTERNAL_API_PASSWORD=admin123
 
-### Frontend (React)
+# ============================================
+# JWT (API REST)
+# ============================================
+JWT_SECRET_KEY=tu_clave_secreta_minimo_32_caracteres
+JWT_ALGORITHM=HS256
+JWT_EXPIRATION_HOURS=8
 
-1.  **Navegar al Directorio:**
-    ```bash
-    cd src/presentation/frontend
-    ```
+# ============================================
+# APP
+# ============================================
+APP_ENV=DEV
+TIEMPO_ESPERA_MONITOREO_GENERAL=10
+```
 
-2.  **Instalar Dependencias:**
-    ```bash
-    npm install
-    ```
+### 2. Instalación
 
-3.  **Iniciar la Aplicación:**
-    ```bash
-    npm run dev
-    ```
-    La aplicación estará disponible en `http://localhost:5173`.
+```bash
+# Crear entorno virtual
+python -m venv venv
+.\venv\Scripts\activate
+
+# Instalar dependencias
+pip install -r requirements.txt
+```
+
+## Modos de Ejecución
+
+### Modo 1: API REST + Frontend (Producción)
+
+**Terminal 1 - API Backend:**
+```bash
+uvicorn src.presentation.api.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**Terminal 2 - Frontend:**
+```bash
+cd src/presentation/frontend
+npm install
+npm run dev
+```
+
+**Terminal 3 - Procesador (modo watch):**
+```bash
+python -m src.presentation.console.console_app --watch
+```
+
+Flujo:
+1. El procesador detecta archivos y notifica a la API
+2. El frontend muestra archivos pendientes de aprobación
+3. Al aprobar, el orquestador procesa y envía a CashOS
+
+### Modo 2: Prueba Local (Sin Frontend)
+
+```bash
+python -m src.presentation.console.console_app --watch --local-test
+```
+
+- Procesa archivos inmediatamente sin notificar a la API
+- Envía directamente a CashOS
+- Ideal para testing y desarrollo
+
+### Modo 3: Solo XML o Solo TXT
+
+```bash
+# Solo archivos XML
+python -m src.presentation.console.console_app --watch --only xml
+
+# Solo archivos TXT
+python -m src.presentation.console.console_app --watch --only txt
+```
+
+## API REST Endpoints
+
+### Autenticación
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| POST | `/api/auth/login` | Login con usuario/contraseña |
+| GET | `/api/auth/me` | Obtener usuario actual |
+
+### Archivos
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/archivos/pendientes` | Lista archivos pendientes |
+| POST | `/api/archivos/nuevo` | Registrar archivo nuevo (interno) |
+| POST | `/api/archivos/aprobar` | Aprobar/rechazar archivo |
+| GET | `/api/archivos/{id}/excel` | Descargar Excel generado |
+
+### WebSocket
+| Endpoint | Descripción |
+|----------|-------------|
+| `/ws/notificaciones` | Notificaciones en tiempo real |
+
+## Formato de Archivos Soportados
+
+### XML (ICOREX)
+**Nombre:** `ICOREX_C4U-CC-Vatco_XXXX_YYYYMMDD_HHMMSS.xml`
+
+Contiene órdenes y remesas con:
+- Información de entrega (fecha, rango horario)
+- Denominaciones y cantidades
+- Valor total
+
+**Salida:**
+- Excel con hojas "Ordenes" y "Remesas"
+- Archivo de respuesta `TR2_VATCO_CCAAMMDDHHMM.txt`
+
+### TXT (Solicitudes ATM)
+**Nombre:** `VTAAVNAL...` o similar
+
+Registros de tipo:
+- **Tipo 1:** Encabezado (información general)
+- **Tipo 2:** Detalle (denominaciones, cantidades, valor)
+
+**Salida:**
+- Excel formateado
+- Archivo de respuesta `TR2_VATCO_CCAAMMDDHHMM.txt`
+
+## Dependencias Principales
+
+```
+pandas          # Manipulación de datos
+openpyxl        # Generación de Excel
+fastapi         # API REST
+uvicorn         # Servidor ASGI
+websockets      # WebSockets
+requests        # Cliente HTTP para APIs
+pydantic>=2     # Validación de datos
+python-dotenv   # Variables de entorno
+pywin32         # Servicio Windows (opcional)
+```
+
+## Arquitectura de Flujo
+
+```
++-------------+     +--------------+     +-------------+
+|   Archivo   |---->|  Pre-valida  |---->|   API REST  |
+|  XML/TXT    |     |  (extracto)  |     |  (pendiente)|
++-------------+     +--------------+     +------+------+
+                                                |
+                      +-------------------------+
+                      |
+                      v
+              +--------------+     +-------------+
+              |   Usuario    |---->|  Procesar   |
+              |  (aprobar)   |     |  (orquestar)|
+              +--------------+     +------+------+
+                                          |
+                    +---------------------+---------------------+
+                    |                     |                     |
+                    v                     v                     v
+            +-------------+        +-------------+        +-------------+
+            |    Excel    |        |   CashOS    |        |   Respuesta |
+            |  (generado) |        |  (API ext)  |        |   (TR2.txt) |
+            +-------------+        +-------------+        +-------------+
+```
+
+## Logs
+
+Los logs se guardan en `logs/VATCO-UNIFICADO-LOG.txt` con formato:
+```
+2026-04-22 10:30:15 [INFO] Archivo detectado: ICOREX_C4U-52...
+2026-04-22 10:30:16 [INFO] Excel generado: Confirmacion_TR/...
+2026-04-22 10:30:17 [INFO] Orden creada en CashOS: ID 12345
+```
+
+## Notas
+
+- El sistema requiere conexión a internet para comunicación con CashOS
+- Para modo desarrollo sin CashOS, usar `--local-test` (ignorará errores SSL)
+- Las carpetas se crean automáticamente si no existen
+- Los archivos procesados se mueven a carpetas "GESTIONADOS" o "ERRORES"
 
 ## Contacto
 
-Para obtener ayuda o reportar problemas, contacte a [Hxmirzzz](mailto:jamir08david@gmail.com).
+Para soporte: [Hxmirzzz](mailto:jamir08david@gmail.com)

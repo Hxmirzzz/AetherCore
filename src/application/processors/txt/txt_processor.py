@@ -197,7 +197,6 @@ class TXTProcessor:
                         servicio = {
                             "client_code": client_code,
                             "service_type": service_type_code,
-                            "point_code": None,
                             "atm_code": atm_code,
                             "service_date": fecha_programacion,
                             "time_window_start": "08:00:00.000Z",
