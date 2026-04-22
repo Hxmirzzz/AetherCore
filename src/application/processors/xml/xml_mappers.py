@@ -133,7 +133,7 @@ def map_elements(elements: List[ET.Element], tipo_servicio: str) -> List[Dict[st
                 if clean_value:
                     requested_denominations.append({
                         "denomination_value": f"{clean_value}.00",
-                        "quality": "",
+                        "quality": "PA",
                         "quantity": count
                     })
 

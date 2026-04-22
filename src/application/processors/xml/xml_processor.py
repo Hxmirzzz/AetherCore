@@ -136,7 +136,13 @@ class XMLProcessor:
                     except ValueError:
                         fecha_api = datetime.today().strftime("%Y-%m-%d")
 
-                    valor_general = str(fila.get("GENERAL", "0")).replace("$", "").replace(".", "").replace(",", "")
+                    if tipo_servicio_api == "RC":
+                        valor_general = 0
+                        denominaciones = []
+                    else:
+                        valor_general = str(fila.get("GENERAL", "0")).replace("$", "").replace(".", "").replace(",", "")
+                        denominaciones = fila.get("RAW_DENOMINATIONS", [])
+
                     rango = str(fila.get("RANGO", "")).strip()
                     bank_name = name_for_internal_code.get(client_code, "Cliente Desconocido")
 
@@ -154,7 +160,7 @@ class XMLProcessor:
                         "bank_name": bank_name,
                         "bank_account_number": "",
                         "bank_account_holder": "",
-                        "requested_denominations": fila.get("RAW_DENOMINATIONS", [])
+                        "requested_denominations": denominaciones
                     }
                     payload_servicios.append(servicio)
 

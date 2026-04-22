@@ -188,7 +188,7 @@ class TXTProcessor:
                                         if denom_int > 0 and cant_int > 0:
                                             denominations_array.append({
                                                 "denomination_value": f"{denom_int}.00",
-                                                "quality": "",
+                                                "quality": "PA",
                                                 "quantity": cant_int
                                             })
                                     except ValueError:
@@ -197,7 +197,7 @@ class TXTProcessor:
                         servicio = {
                             "client_code": client_code,
                             "service_type": service_type_code,
-                            "point_code": "",
+                            "point_code": None,
                             "atm_code": atm_code,
                             "service_date": fecha_programacion,
                             "time_window_start": "08:00:00.000Z",

@@ -48,9 +48,22 @@ class ExternalApiClient:
         if not self.token:
             self.authenticate()
 
-        url = f"{self.base_url}/api/v1/service-orders/"
+        url = f"{self.base_url}/service-orders/"
         try:
             response = self.session.post(url, json=order_data, timeout=15)
+            if response.status_code == 400:
+                logger.error(f"Failed to create service order: {response.text}")
+                req = response.request
+                
+                cuerpo_enviado = req.body.decode('utf-8') if isinstance(req.body, bytes) else req.body
+                
+                logger.error("=" * 60)
+                logger.error(f"MÉTODO Y URL: {req.method} {req.url}")
+                logger.error(f"HEADERS ENVIADOS: {dict(req.headers)}")
+                logger.error(f"BODY (PAYLOAD) ENVIADO:\n{cuerpo_enviado}")
+                logger.error("-" * 60)
+                logger.error(f"RESPUESTA DEL SERVIDOR:\n{response.text}")
+                logger.error("=" * 60)
             response.raise_for_status()
             return {"status": "success", "data": response.json(), "status_code": response.status_code}
         except requests.exceptions.RequestException as e:
@@ -62,7 +75,7 @@ class ExternalApiClient:
         if not self.token:
             self.authenticate()
 
-        url = f"{self.base_url}/api/v1/service-orders/bulk/"
+        url = f"{self.base_url}/service-orders/bulk/"
         payload = {"orders": orders_list}
 
         try:
@@ -112,7 +125,7 @@ class ExternalApiClient:
         if not self.token:
             self.authenticate()
 
-        url = f"{self.base_url}/api/v1/service-types/"
+        url = f"{self.base_url}/service-types/"
         try:
             response = self.session.get(url, timeout=15)
             response.raise_for_status()
