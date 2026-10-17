@@ -172,7 +172,7 @@ class TXTProcessor:
                         
                         valor_total = str(row.get("TOTAL_VALOR", "0")).replace("$", "").replace(".", "").replace(",", "").strip()
 
-                        denominations_array = []
+                        denominations_array = [] # TODO: Implementar lógica para denominaciones, se queda vacío por ahora
                         for col in df2.columns:
                             if isinstance(col, str) and col.startswith("GAV") and "DENOMINACION" in col:
                                 cant_col = col.replace("DENOMINACION", "CANTIDAD")
@@ -207,7 +207,7 @@ class TXTProcessor:
                             "bank_name": bank_name,
                             "bank_account_number": "",
                             "bank_account_holder": "",
-                            "requested_denominations": denominations_array
+                            "requested_denominations": []
                         }
                         payload_servicios.append(servicio)
 

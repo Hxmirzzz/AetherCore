@@ -1,263 +1,291 @@
-# AetherCore - Procesamiento de Archivos y API REST
+﻿# AetherCore
 
-## Descripción General
+AetherCore es una aplicación orientada a automatizar la recepción, validación, aprobación y envío de archivos TXT/XML hacia una API externa para la creación de órdenes de servicio. Está diseñada para trabajar con carpetas de entrada monitorizadas, generar archivos Excel con información estructurada y enviar datos a un sistema externo (CashOS) de forma ordenada y trazable.
 
-AetherCore es un sistema de procesamiento automatizado de archivos TXT/XML orientado a la integración con APIs externas. El sistema:
+## Finalidad
 
-1. **Monitorea carpetas** en busca de archivos XML y TXT
-2. **Pre-valida y notifica** mediante API REST con autenticación JWT
-3. **Genera archivos Excel** con formato estructurado
-4. **Envía datos a APIs externas** (CashOS) para crear órdenes de servicio
-5. **Gestiona respuestas** de confirmación (archivos TR2)
+La finalidad principal de AetherCore es digitalizar y ordenar el flujo de trabajo de archivos de negocio que llegan desde distintos canales, especialmente archivos de servicio ATM o remesas XML. La solución permite:
 
-## Características Principales
+- detectar nuevos archivos en directorios configurados,
+- validar el formato básico antes de procesarlos,
+- notificar la información a una API interna para revisión o aprobación,
+- generar informes y archivos Excel,
+- enviar la información a una API externa para crear órdenes,
+- dejar registro de eventos y errores para trazabilidad.
 
-- **Procesamiento Dual:** Soporte simultáneo para archivos XML y TXT
-- **API REST con JWT:** Backend FastAPI con autenticación segura y WebSockets
-- **Integración CashOS:** Comunicación directa con API externa para creación de órdenes
-- **Frontend React:** Dashboard interactivo para aprobación de archivos en tiempo real
-- **Modo Local/Prueba:** Ejecución sin dependencia del frontend para testing
-- **Arquitectura Modular:** Separación clara entre procesadores, orquestadores y clientes API
+## Objetivo
 
-## Estructura del Proyecto
+El objetivo del proyecto es reducir la intervención manual en el tratamiento de archivos, acelerar la incorporación de información en sistemas externos y mejorar la visibilidad del estado de cada archivo mediante una API REST y un frontend de supervisión.
 
-```
+## ¿Cómo funciona?
+
+El flujo básico del sistema es el siguiente:
+
+1. El sistema revisa periódicamente carpetas de entrada para detectar archivos `.xml` y `.txt`.
+2. Cada archivo es prevalidado para comprobar que tiene un formato mínimo aceptable.
+3. Si la validación es correcta, el archivo se notifica a la API interna para quedar pendiente de aprobación.
+4. Un usuario revisa la información desde la interfaz web o la API.
+5. Si el archivo es aprobado, se ejecuta el proceso de transformación y generación del payload.
+6. El sistema envía los datos a la API externa y registra el resultado.
+7. El archivo se gestiona en carpetas de salida, gestionados o errores según el resultado.
+
+## Arquitectura del proyecto
+
+```text
 AetherCore/
 ├── src/
 │   ├── application/
-│   │   ├── orchestrators/     # Orquestador principal de procesamiento
-│   │   └── processors/        # Procesadores XML y TXT
-│   │       ├── xml/           # XML → Excel + API
-│   │       └── txt/           # TXT → Excel + API
+│   │   ├── orchestrators/
+│   │   │   └── processing_orchestrator.py
+│   │   └── processors/
+│   │       ├── txt/
+│   │       └── xml/
 │   ├── domain/
-│   │   ├── entities/          # Catálogos y entidades
-│   │   └── value_objects/     # Objetos de valor
+│   │   ├── entities/
+│   │   └── value_objects/
 │   ├── infrastructure/
-│   │   ├── api/               # Clientes API (External/Internal)
-│   │   ├── config/            # Configuración Pydantic
-│   │   ├── di/                # Contenedor de dependencias
-│   │   ├── excel/             # Excel styler
-│   │   └── file_system/       # Gestión de archivos
+│   │   ├── api/
+│   │   ├── config/
+│   │   ├── di/
+│   │   ├── excel/
+│   │   ├── file_system/
+│   │   └── monitoring/
 │   └── presentation/
-│       ├── api/               # API REST (FastAPI)
-│       ├── console/           # CLI (modo --watch)
-│       └── frontend/          # React + Vite
-├── logs/                      # Logs de la aplicación
-├── .env                       # Variables de entorno
-├── .env.example               # Plantilla de variables
-└── requirements.txt           # Dependencias Python
+│       ├── api/
+│       ├── console/
+│       └── frontend/
+├── data/
+│   ├── in/
+│   ├── out/
+│   └── handled/
+├── logs/
+├── config/
+├── .env
+├── .env.example
+├── requirements.txt
+├── install_windows_service.bat
+├── README.md
+└── test/
 ```
 
-## Configuración
+## Componentes principales
 
-### 1. Variables de Entorno (.env)
+### 1. API REST
+La API se encuentra en `src/presentation/api/main.py` y expone endpoints para autenticación, notificación de archivos pendientes y aprobación de archivos. Implementa seguridad JWT y WebSockets para llevar notificaciones en tiempo real.
+
+### 2. Frontend React
+La app web está en `src/presentation/frontend` y permite consultar archivos pendientes y aprobarlos o rechazarlos desde una interfaz visual.
+
+### 3. Watcher / monitor de carpetas
+El sistema revisa las carpetas de entrada de forma periódica mediante `DirectoryWatcher` para detectar nuevos archivos sin intervención manual.
+
+### 4. Orquestador de procesamiento
+`ProcessingOrchestrator` es el corazón del proceso. Coordina:
+
+- prevalidación,
+- lectura del archivo,
+- transformación de datos,
+- generación del Excel,
+- preparación del payload,
+- envío a API externa,
+- gestión del estado del archivo.
+
+### 5. Processors XML y TXT
+Hay dos rutas de procesamiento:
+
+- `xml`: procesa archivos XML y genera payloads con información como remesas y órdenes.
+- `txt`: procesa archivos de texto con estructuras específicas para solicitudes de ATM.
+
+## Requisitos previos
+
+- Python 3.9 o superior
+- Node.js y npm para el frontend
+- Acceso a la red para comunicarse con la API externa
+- Archivo `.env` con variables correctas
+- En Windows, posibilidad de instalar NSSM para crear un servicio
+
+## Configuración del entorno
+
+Se usa `.env` para definir rutas y credenciales. La plantilla base está en `.env.example`.
+
+Ejemplo mínimo:
 
 ```env
-# ============================================
-# IDENTIFICADOR DEL SISTEMA
-# ============================================
+APP_ENV=DEV
 COMPANY_CODE=SYSTEM
 
-# ============================================
-# RUTAS DE PROCESAMIENTO
-# ============================================
-CARPETA_ENTRADA_TXT=C:\SFTP_VGL\AVAL\ENTRADAS\SOLICITUDES SERVICIOS ATM
-CARPETA_SALIDA_TXT=C:\SFTP_VGL\AVAL\SALIDAS\ATH\Confirmacion_TR
-CARPETA_RESPUESTA_TXT=C:\SFTP_VGL\AVAL\SALIDAS\ATH\Confirmacion_TR
-CARPETA_ERRORES_TXT=C:\SFTP_VGL\AVAL\ENTRADAS\SOLICITUDES SERVICIOS ATM\ERRORES
-CARPETA_GESTIONADOS_TXT=C:\SFTP_VGL\AVAL\ENTRADAS\SOLICITUDES SERVICIOS ATM\GESTIONADOS
+CARPETA_ENTRADA_TXT=C:\ruta\in\txt
+CARPETA_SALIDA_TXT=C:\ruta\out\txt
+CARPETA_GESTIONADOS_TXT=C:\ruta\handled\txt
+CARPETA_ERRORES_TXT=C:\ruta\errores\txt
 
-CARPETA_ENTRADA_XML=C:\SFTP_VGL\AVAL\ENTRADAS\XML
-CARPETA_SALIDA_XML=C:\SFTP_VGL\AVAL\SALIDAS\ATH\Confirmacion_TR
-CARPETA_GESTIONADOS_XML=C:\SFTP_VGL\AVAL\ENTRADAS\XML\GESTIONADOS
-CARPETA_ERRORES_XML=C:\SFTP_VGL\AVAL\ENTRADAS\XML\ERRORES
+CARPETA_ENTRADA_XML=C:\ruta\in\xml
+CARPETA_SALIDA_XML=C:\ruta\out\xml
+CARPETA_GESTIONADOS_XML=C:\ruta\handled\xml
+CARPETA_ERRORES_XML=C:\ruta\errores\xml
+CARPETA_RESPUESTA_TXT=C:\ruta\respuesta
 
-# ============================================
-# API EXTERNA (CashOS)
-# ============================================
-EXTERNAL_API_URL=https://cashos-test.wbhpro.com/api/v1
-EXTERNAL_API_USER=tu_usuario
-EXTERNAL_API_PASSWORD=tu_password
+EXTERNAL_API_URL=http://api-externa.example/api/
+EXTERNAL_API_USER=usuario
+EXTERNAL_API_PASSWORD=password
 
-# ============================================
-# API INTERNA (Notificaciones propias)
-# ============================================
 INTERNAL_API_URL=http://localhost:8000
 INTERNAL_API_USER=admin
 INTERNAL_API_PASSWORD=admin123
 
-# ============================================
-# JWT (API REST)
-# ============================================
-JWT_SECRET_KEY=tu_clave_secreta_minimo_32_caracteres
+JWT_SECRET_KEY=clave_secreta_muy_larga_y_segura
 JWT_ALGORITHM=HS256
 JWT_EXPIRATION_HOURS=8
-
-# ============================================
-# APP
-# ============================================
-APP_ENV=DEV
 TIEMPO_ESPERA_MONITOREO_GENERAL=10
 ```
 
-### 2. Instalación
+## Instalación
 
 ```bash
-# Crear entorno virtual
 python -m venv venv
 .\venv\Scripts\activate
-
-# Instalar dependencias
 pip install -r requirements.txt
 ```
 
-## Modos de Ejecución
+## Arranque de la aplicación
 
-### Modo 1: API REST + Frontend (Producción)
+### 1. Backend API
 
-**Terminal 1 - API Backend:**
+Desde la raíz del proyecto:
+
 ```bash
 uvicorn src.presentation.api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-**Terminal 2 - Frontend:**
+Qué hace este comando:
+
+- levanta FastAPI,
+- expone la API en el puerto 8000,
+- habilita recarga automática en desarrollo,
+- permite consumir endpoints como autenticación, aprobación y estado de archivos.
+
+### 2. Frontend React
+
 ```bash
 cd src/presentation/frontend
 npm install
 npm run dev
 ```
 
-**Terminal 3 - Procesador (modo watch):**
+Qué hace cada comando:
+
+- `npm install`: instala dependencias del proyecto frontend.
+- `npm run dev`: inicia Vite en modo desarrollo y sirve la UI en el puerto por defecto.
+- `npm run build`: genera una build de producción.
+- `npm run preview`: sirve la build generada para comprobarla.
+- `npm run serve`: levanta una vista previa en el puerto 3000.
+
+### 3. Monitor de archivos (watcher)
+
 ```bash
 python -m src.presentation.console.console_app --watch
 ```
 
-Flujo:
-1. El procesador detecta archivos y notifica a la API
-2. El frontend muestra archivos pendientes de aprobación
-3. Al aprobar, el orquestador procesa y envía a CashOS
+Este comando activa el escaneo periódico de carpetas de entrada. Si detecta un archivo nuevo, lo prevalida y lo notifica a la API. Si la opción `--local-test` se usa, lo procesa directamente sin depender del frontend.
 
-### Modo 2: Prueba Local (Sin Frontend)
+## Comandos disponibles del watcher
 
-```bash
-python -m src.presentation.console.console_app --watch --local-test
-```
+| Comando | Descripción |
+|---|---|
+| `python -m src.presentation.console.console_app --watch` | actúa sobre XML y TXT a la vez |
+| `python -m src.presentation.console.console_app --watch --only xml` | solo supervisa archivos XML |
+| `python -m src.presentation.console.console_app --watch --only txt` | solo supervisa archivos TXT |
+| `python -m src.presentation.console.console_app --watch --local-test` | procesa automáticamente archivos sin notificar a la API |
+| `python -m src.presentation.console.console_app --watch --api-url http://localhost:8000` | cambia la URL de la API a la que notifica |
+| `python -m src.presentation.console.console_app --watch --in-xml C:\ruta\entrada --out-xml C:\ruta\salida` | sobreescribe la carpeta de entrada/salida XML |
+| `python -m src.presentation.console.console_app --watch --in-txt C:\ruta\entrada --out-txt C:\ruta\salida` | sobreescribe la carpeta de entrada/salida TXT |
 
-- Procesa archivos inmediatamente sin notificar a la API
-- Envía directamente a CashOS
-- Ideal para testing y desarrollo
+## Cómo se procesa un archivo
 
-### Modo 3: Solo XML o Solo TXT
+El proceso real de un archivo es:
 
-```bash
-# Solo archivos XML
-python -m src.presentation.console.console_app --watch --only xml
+1. llega a la carpeta de entrada,
+2. el watcher lo detecta,
+3. el orquestador lo prevalida,
+4. se genera un `archivo_id` y un preview del contenido,
+5. se envía a la API REST para quedar pendiente,
+6. el usuario aprueba o rechaza,
+7. se ejecuta el transformador del tipo correspondiente,
+8. se genera el Excel o el payload final,
+9. se envía a la API externa,
+10. se mueve o registra el estado del archivo.
 
-# Solo archivos TXT
-python -m src.presentation.console.console_app --watch --only txt
-```
-
-## API REST Endpoints
+## API REST y endpoints clave
 
 ### Autenticación
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| POST | `/api/auth/login` | Login con usuario/contraseña |
-| GET | `/api/auth/me` | Obtener usuario actual |
+
+- `POST /api/auth/login`: inicia sesión con usuario y contraseña.
+- `GET /api/auth/me`: devuelve información del usuario autenticado.
 
 ### Archivos
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/api/archivos/pendientes` | Lista archivos pendientes |
-| POST | `/api/archivos/nuevo` | Registrar archivo nuevo (interno) |
-| POST | `/api/archivos/aprobar` | Aprobar/rechazar archivo |
-| GET | `/api/archivos/{id}/excel` | Descargar Excel generado |
+
+- `GET /api/archivos/pendientes`: lista los archivos que esperan aprobación.
+- `POST /api/archivos/nuevo`: registra un archivo detectado en el sistema.
+- `POST /api/archivos/aprobar`: aprueba o rechaza un archivo pendiente.
+- `GET /api/archivos/{id}/excel`: descarga el Excel generado.
 
 ### WebSocket
-| Endpoint | Descripción |
-|----------|-------------|
-| `/ws/notificaciones` | Notificaciones en tiempo real |
 
-## Formato de Archivos Soportados
+- `/ws/notificaciones`: canal para avisos y cambios de estado en tiempo real.
 
-### XML
-**Nombre:** `CC-SYSTEM_XXXX_YYYYMMDD_HHMMSS.xml`
+## Carpetas de trabajo
 
-Contiene órdenes y remesas con:
-- Información de entrega (fecha, rango horario)
-- Denominaciones y cantidades
-- Valor total
+El sistema crea y usa estas carpetas:
 
-**Salida:**
-- Excel con hojas "Ordenes" y "Remesas"
-- Archivo de respuesta `TR2_<COMPANY>_CCAAMMDDHHMM.txt`
+- `data/in/txt` y `data/in/xml`: archivos recibidos.
+- `data/out/txt` y `data/out/xml`: archivos procesados o exportados.
+- `data/handled/txt` y `data/handled/xml`: archivos ya gestionados.
+- `logs`: trazabilidad y logs del sistema.
 
-### TXT (Solicitudes ATM)
-**Nombre:** `VTAAVNAL...` o similar
+## Servicio de Windows
 
-Registros de tipo:
-- **Tipo 1:** Encabezado (información general)
-- **Tipo 2:** Detalle (denominaciones, cantidades, valor)
+En la raíz del proyecto existe el archivo `install_windows_service.bat`. Sirve para prepararlo todo en Windows:
 
-**Salida:**
-- Excel formateado
-- Archivo de respuesta `TR2_<COMPANY>_CCAAMMDDHHMM.txt`
+- verifica Python,
+- crea un entorno virtual si no existe,
+- instala dependencias,
+- genera carpetas necesarias,
+- crea `.env` si falta,
+- verifica NSSM para instalar un servicio Windows.
 
-## Dependencias Principales
+Uso recomendado:
 
-```
-pandas          # Manipulación de datos
-openpyxl        # Generación de Excel
-fastapi         # API REST
-uvicorn         # Servidor ASGI
-websockets      # WebSockets
-requests        # Cliente HTTP para APIs
-pydantic>=2     # Validación de datos
-python-dotenv   # Variables de entorno
-pywin32         # Servicio Windows (opcional)
+```bat
+install_windows_service.bat
 ```
 
-## Arquitectura de Flujo
-
-```
-+-------------+     +--------------+     +-------------+
-|   Archivo   |---->|  Pre-valida  |---->|   API REST  |
-|  XML/TXT    |     |  (extracto)  |     |  (pendiente)|
-+-------------+     +--------------+     +------+------+
-                                                |
-                      +-------------------------+
-                      |
-                      v
-              +--------------+     +-------------+
-              |   Usuario    |---->|  Procesar   |
-              |  (aprobar)   |     |  (orquestar)|
-              +--------------+     +------+------+
-                                          |
-                    +---------------------+---------------------+
-                    |                     |                     |
-                    v                     v                     v
-            +-------------+        +-------------+        +-------------+
-            |    Excel    |        |   CashOS    |        |   Respuesta |
-            |  (generado) |        |  (API ext)  |        |   (TR2.txt) |
-            +-------------+        +-------------+        +-------------+
-```
+Importante: este script se debe ejecutar como administrador.
 
 ## Logs
 
-Los logs se guardan en `logs/<COMPANY_CODE>-UNIFICADO-LOG.txt` (ej: `SYSTEM-UNIFICADO-LOG.txt`) con formato:
-```
-2026-04-22 10:30:15 [INFO] Archivo detectado: C4U-52...
-2026-04-22 10:30:16 [INFO] Excel generado: Confirmacion_TR/...
-2026-04-22 10:30:17 [INFO] Orden creada en CashOS: ID 12345
-```
+La aplicación integra registros de operación y trazabilidad. Los archivos principales se guardan en la carpeta `logs` con nombres como:
 
-## Notas
+- `SYSTEM-UNIFICADO-LOG.txt`
+- `SYSTEM-TXT2XLS-LOG.txt`
+- `SYSTEM-XML2XLS-LOG.txt`
 
-- El sistema requiere conexión a internet para comunicación con CashOS
-- Para modo desarrollo sin CashOS, usar `--local-test` (ignorará errores SSL)
-- Las carpetas se crean automáticamente si no existen
-- Los archivos procesados se mueven a carpetas "GESTIONADOS" o "ERRORES"
+## Recomendación de uso
+
+Para un entorno de producción o prueba real, se recomienda levantar estos tres elementos:
+
+1. API REST.
+2. Frontend React.
+3. Watcher de carpetas.
+
+Esto permite que el flujo completo funcione con aprobación manual, trazabilidad y control del proceso.
+
+## Notas finales
+
+- El sistema requiere conexión con API externas y base de datos según la configuración.
+- El modo `--local-test` es útil para pruebas sin depender del frontend o de la aprobación manual.
+- Las rutas y credenciales deben configurarse correctamente antes de usarse en producción.
+- El servicio se encarga de automatizar la ejecución continua sin necesidad de abrir una terminal cada vez.
 
 ## Contacto
 
-Para soporte: [Hxmirzzz](mailto:jamir08david@gmail.com)
+Para soporte o mantenimiento del proyecto, consultar el responsable del repositorio o bien revisar las variables y la configuración del entorno antes de desplegarlo en producción.

@@ -21,6 +21,8 @@ env/
 # Archivos de configuración de IDEs (VS Code, etc.)
 # Ignora la carpeta .vscode de VS Code con configuraciones de usuario
 .vscode/
+# Ignora la configuración local de JetBrains / IntelliJ / PyCharm
+.idea/
 
 # Archivos de registro (Logs)
 # Ignora la carpeta 'logs' dentro del proyecto (si se genera en tiempo de ejecución)
